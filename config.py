@@ -3,7 +3,7 @@ from typing import List
 
 # বেসিক কনফিগ
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8989854278:AAFCjZMd7x4W7OfjHh_1mI8x_TgO2pQb1WE")
-ADMIN_IDS = [int(id) for id in os.getenv("ADMIN_IDS", "1978055060", "5994477331").split(",")]
+ADMIN_IDS = [int(id) for id in os.getenv("ADMIN_IDS", "1978055060,5994477331").split(",")]
 
 # Shopify চেকিং কনফিগ
 CHECK_DELAY = int(os.getenv("CHECK_DELAY", "4"))  # প্রতিটি কার্ডের মাঝে delay (seconds)
