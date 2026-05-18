@@ -443,7 +443,7 @@ class CardCheckerBot:
 **স্পিড:**
 • {CHECK_DELAY}s/কার্ড (রিয়েল চেক)
 
-**সাপোর্ট:** @YourUsername
+**সাপোর্ট:** @thispersonisbrand537
         """.format(CHECK_DELAY=CHECK_DELAY)
         
         help_en = """
@@ -474,7 +474,7 @@ This bot checks cards using Shopify's REAL API.
 **Speed:**
 • {CHECK_DELAY}s/card (real check)
 
-**Support:** @YourUsername
+**Support:** @thispersonisbrand537
         """.format(CHECK_DELAY=CHECK_DELAY)
         
         back_button = InlineKeyboardMarkup([
@@ -767,7 +767,7 @@ This bot checks cards using Shopify's REAL API.
         output += f"""
 {'═' * 50}
 📊 **সারাংশ:** {len(approved)} লাইভ | {len(declined)} ডাই | {total} টোটাল
-🤖 @ShopifyCardCheckerBot
+🤖 @thispersonisbrandcardchecker_bot
 """
         
         return output
