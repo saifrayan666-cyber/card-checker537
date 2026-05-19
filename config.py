@@ -9,12 +9,12 @@ OWNER_USERNAME = os.getenv("OWNER_USERNAME", "@thispersonisbrand537")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "1978055060,5994477331").split(",")]
 INITIAL_ADMINS = ADMIN_IDS
 
-# ==================== চেকিং ====================
+# ==================== চেকিং কনফিগ ====================
 CHECK_DELAY = int(os.getenv("CHECK_DELAY", "3"))
 MAX_FILE_CARDS = int(os.getenv("MAX_FILE_CARDS", "10000"))
-MAX_CONCURRENT_USERS = 25  # ২০-২৫ ইউজার একসাথে
+MAX_CONCURRENT_USERS = 25
 
-# ==================== ৫টি গেটওয়ে ====================
+# ==================== গেটওয়ে ====================
 GATEWAYS = {
     "stripe": {
         "name": "💳 Stripe (Shopify)",
@@ -38,9 +38,11 @@ GATEWAYS = {
     }
 }
 
-# ==================== API URLs ====================
+# ==================== API ====================
 STRIPE_API = "https://api.stripe.com/v1"
+STRIPE_PUBLIC_KEY = "pk_live_51H3Y2kCZqK8FwQqSY4K8VQqSZCqK8FwQqSY4K8VQqS"
 BRAINTREE_API = "https://payments.braintree-api.com/graphql"
+BRAINTREE_PUBLIC_KEY = "sandbox_8h2v3m8n_6x5y4z3w2q"
 ADYEN_API = "https://checkout-test.adyen.com/v71"
 CHECKOUT_API = "https://api.checkout.com"
 BIN_API = "https://lookup.binlist.net"
@@ -50,8 +52,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Safari/604.1"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
 ]
 
 # ==================== কান্ট্রি ====================
