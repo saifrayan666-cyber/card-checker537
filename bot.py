@@ -753,35 +753,43 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
     
     # ==================== RUN ====================
     def run(self):
-        if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-            print("❌ BOT_TOKEN not configured!")
-            sys.exit(1)
-        
-        app = Application.builder().token(BOT_TOKEN).build()
-        
-        app.add_handler(CommandHandler("start", self.start_command))
-        app.add_handler(CommandHandler("users", self.admin_commands))
-        app.add_handler(CommandHandler("approve", self.admin_commands))
-        app.add_handler(CommandHandler("block", self.admin_commands))
-        app.add_handler(CommandHandler("broadcast", self.admin_commands))
-        app.add_handler(CommandHandler("cancel", lambda u, c: u.message.reply_text("✅ Cancelled!")))
-        app.add_handler(CallbackQueryHandler(self.button_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_card_input))
-        app.add_handler(MessageHandler(filters.Document.ALL, self.handle_file))
-        
-        print("""
+    """Run bot - Fixed"""
+    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        print("❌ BOT_TOKEN not configured!")
+        sys.exit(1)
+    
+    # Create app
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # Add handlers
+    app.add_handler(CommandHandler("start", self.start_command))
+    app.add_handler(CommandHandler("users", self.admin_commands))
+    app.add_handler(CommandHandler("approve", self.admin_commands))
+    app.add_handler(CommandHandler("block", self.admin_commands))
+    app.add_handler(CommandHandler("broadcast", self.admin_commands))
+    app.add_handler(CallbackQueryHandler(self.button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_card_input))
+    app.add_handler(MessageHandler(filters.Document.ALL, self.handle_file))
+    
+    # Error handler
+    async def error_handler(update, context):
+        logger.error(f"Error: {context.error}")
+    
+    app.add_error_handler(error_handler)
+    
+    print("""
 ══════════════════════════════════════════
   🚀 Shopify Card Checker Pro
   👑 Admin Panel Active
   🌐 5 Gateways
-  📢 Broadcast System
-  👥 20-25 Concurrent Users
 ══════════════════════════════════════════
-        """)
-        
-        print("✅ Bot is running...")
-        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-
-if __name__ == "__main__":
-    bot = ShopifyCardBot()
-    bot.run()
+    """)
+    
+    print("✅ Bot starting...")
+    
+    # Run with proper settings
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        stop_signals=None
+    )
