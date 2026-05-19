@@ -27,10 +27,6 @@ GATEWAYS = {
     "braintree": {
         "name": "🅱️ Braintree (Real Check)",
         "description": "Real Braintree payment validation"
-    },
-    "bin_check": {
-        "name": "🔍 BIN Lookup (Info Only)",
-        "description": "BIN information only - NO live check"
     }
 }
 
