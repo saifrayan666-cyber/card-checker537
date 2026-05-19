@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Shopify Card Checker Bot - Professional
-Full Card Details + CVV Visible
+All Gateways Working | Full Card Details | Admin Panel | Broadcast
 """
 
 import asyncio
@@ -33,7 +33,7 @@ for admin_id in INITIAL_ADMINS:
     db.add_admin(admin_id)
 
 class ShopifyCardBot:
-    """Professional Bot - Full Card Details"""
+    """Professional Bot"""
     
     def __init__(self):
         self.user_settings: Dict[int, Dict] = {}
@@ -75,10 +75,11 @@ class ShopifyCardBot:
 
 👋 Welcome **{user.first_name}**!
 
-⚡ **5 Payment Gateways**
-✅ Live Card Detection
-📊 Full Card Details + CVV
-🌍 14 Countries
+⚡ **Gateways:**
+• 💳 Stripe - Real Check
+• 🛒 Shopify - Real Check
+• 🅱️ Braintree - Real Check
+• 🔍 BIN Lookup - Info Only
 
 **Your Settings:**
 • Country: {COUNTRIES[settings['country']]['name']}
@@ -241,7 +242,7 @@ Select action:
             approved = db.get_approved_users()
             msg = "👥 **Approved Users:**\n\n"
             for u in approved[:30]:
-                msg += f"• {u['first_name']} - `{u['id']}`\n"
+                msg += f"• {u['first_name']} - `{u['id']}` | Checks: {u.get('total_checks', 0)}\n"
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
@@ -254,7 +255,16 @@ Select action:
                 return
             msg = "⏳ **Pending Users:**\n\n"
             for u in pending:
-                msg += f"• {u['first_name']} - `{u['id']}`\n"
+                msg += f"• {u['first_name']} (@{u.get('username', 'N/A')}) - `{u['id']}`\n"
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"✅ Approve", callback_data=f"approve_{u['id']}"),
+                     InlineKeyboardButton("❌ Reject", callback_data=f"reject_{u['id']}")],
+                    [InlineKeyboardButton("🚫 Block", callback_data=f"block_{u['id']}")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]
+                ])
+                await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
+                return
+            
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
@@ -268,6 +278,13 @@ Select action:
             msg = "🚫 **Blocked Users:**\n\n"
             for u in blocked:
                 msg += f"• {u['first_name']} - `{u['id']}`\n"
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"✅ Unblock", callback_data=f"unblock_{u['id']}"),
+                     InlineKeyboardButton("🗑 Remove", callback_data=f"remove_{u['id']}")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]
+                ])
+                await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
+                return
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
@@ -275,7 +292,7 @@ Select action:
             if not db.is_admin(user_id):
                 return
             self.user_settings[user_id]["awaiting_broadcast"] = True
-            await query.edit_message_text("📢 Send broadcast message now...")
+            await query.edit_message_text("📢 Send broadcast message now...\nSend /cancel to cancel.")
         
         elif data == "check_history":
             if not db.is_admin(user_id):
@@ -283,7 +300,7 @@ Select action:
             history = db.users.get("check_history", [])[-20:]
             msg = "📋 **Recent Checks:**\n\n"
             for h in reversed(history):
-                msg += f"• {h['card']} - {h['status']}\n"
+                msg += f"• {h['card']} - {h['status']} ({h['gateway']})\n"
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
@@ -293,6 +310,7 @@ Select action:
 📝 **Enter Card Details:**
 
 Format: `4111111111111111|12|2026|123`
+Separators: | : , ; space
 
 Gateway: {GATEWAYS[settings['gateway']]['name']}
 Country: {COUNTRIES[settings['country']]['name']}
@@ -323,6 +341,8 @@ Total: {s['total']}
 ✅ Approved: {s['approved']}
 ❌ Declined: {s['declined']}
 📈 Rate: {rate:.1f}%
+💚 Live: {s['live']}
+💀 Die: {s['die']}
             """
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Refresh", callback_data="stats")],
@@ -376,8 +396,16 @@ Total: {s['total']}
         elif data == "help":
             help_msg = f"""
 ℹ️ **Help**
-Format: `4111111111111111|12|2026|123`
-Support: {OWNER_USERNAME}
+
+**Gateways:**
+• 💳 Stripe - Real card check
+• 🛒 Shopify - Store create check
+• 🅱️ Braintree - Payment validate
+• 🔍 BIN Lookup - Info only
+
+**Format:** `4111111111111111|12|2026|123`
+
+**Support:** {OWNER_USERNAME}
             """
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]])
             await query.edit_message_text(help_msg, reply_markup=keyboard, parse_mode='Markdown')
@@ -434,16 +462,16 @@ Support: {OWNER_USERNAME}
         
         gateway = settings["gateway"]
         gw_name = GATEWAYS[gateway]["name"]
-        country = settings["country"]
         
         processing_msg = await update.message.reply_text(
-            f"⏳ Checking {len(cards)} cards...\nGateway: {gw_name}"
+            f"⏳ Checking {len(cards)} cards...\n"
+            f"Gateway: {gw_name}\n"
+            f"{'⚠️ BIN Lookup = Info only, no live check' if gateway == 'bin_check' else '✅ Real live check'}"
         )
         
-        # ===== LIVE RESULT CALLBACK - FULL DETAILS =====
         async def on_live_result(result, current, total):
             live_msg = (
-                f"✅ **LIVE CARD FOUND!** ({current}/{total})\n\n"
+                f"✅ **LIVE!** ({current}/{total})\n\n"
                 f"💳 **Card:** `{result.get('full_number', result['card'])}`\n"
                 f"📅 **Expiry:** `{result.get('full_month', 'N/A')}/{result.get('full_year', 'N/A')}`\n"
                 f"🔐 **CVV:** `{result.get('full_cvv', 'N/A')}`\n"
@@ -455,12 +483,13 @@ Support: {OWNER_USERNAME}
             )
             if result.get('bin_info'):
                 bi = result['bin_info']
-                live_msg += (
-                    f"🏛 **Bank:** {bi.get('bank', 'N/A')}\n"
-                    f"🌍 **Country:** {bi.get('country', 'N/A')}\n"
-                    f"🏷 **Brand:** {bi.get('brand', 'N/A')}\n"
-                    f"💼 **Card Type:** {bi.get('type', 'N/A')}\n"
-                )
+                if bi.get('bank'):
+                    live_msg += (
+                        f"🏛 **Bank:** {bi.get('bank', 'N/A')}\n"
+                        f"🌍 **Country:** {bi.get('country', 'N/A')}\n"
+                        f"🏷 **Brand:** {bi.get('brand', 'N/A')}\n"
+                        f"💼 **Type:** {bi.get('type', 'N/A')}\n"
+                    )
             
             await update.message.reply_text(live_msg, parse_mode='Markdown')
         
@@ -468,7 +497,7 @@ Support: {OWNER_USERNAME}
             results = await checker.check_batch(
                 cards,
                 gateway=gateway,
-                country=country,
+                country=settings["country"],
                 progress_callback=lambda c, t, card: self.progress_update(processing_msg, c, t, card),
                 live_result_callback=on_live_result
             )
@@ -503,7 +532,7 @@ Support: {OWNER_USERNAME}
                         f.write(f"  Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')} | CVV: {r.get('full_cvv', 'N/A')}\n")
                         if r.get('bin_info'):
                             bi = r['bin_info']
-                            f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')} | Type:{bi.get('type')}\n")
+                            f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')}\n")
                         f.write("\n")
                 
                 with open(filename, 'rb') as f:
@@ -515,6 +544,7 @@ Support: {OWNER_USERNAME}
                 os.remove(filename)
             
             db.update_user_stats(user_id, len(approved))
+            db.add_check_history(user_id, f"{len(cards)} cards", f"{len(approved)} approved", gw_name)
             
         except Exception as e:
             logger.error(f"Error: {e}")
@@ -587,7 +617,11 @@ Support: {OWNER_USERNAME}
             content = (await file.download_as_bytearray()).decode('utf-8')
             cards = [line.strip() for line in content.split('\n') if line.strip()][:MAX_FILE_CARDS]
             
-            await progress_msg.edit_text(f"⏳ Checking {len(cards)} cards...\nGateway: {gw_name}")
+            await progress_msg.edit_text(
+                f"⏳ Checking {len(cards)} cards...\n"
+                f"Gateway: {gw_name}\n"
+                f"{'⚠️ BIN Lookup = Info only' if gateway == 'bin_check' else '✅ Real live check'}"
+            )
             
             async def on_live(result, current, total):
                 live_msg = (
@@ -597,7 +631,7 @@ Support: {OWNER_USERNAME}
                     f"🔐 CVV: `{result.get('full_cvv', 'N/A')}`\n"
                     f"🌐 {result['gateway']}\n"
                 )
-                if result.get('bin_info'):
+                if result.get('bin_info') and result['bin_info'].get('bank'):
                     bi = result['bin_info']
                     live_msg += f"🏛 {bi.get('bank', 'N/A')} | 🌍 {bi.get('country', 'N/A')}"
                 await update.message.reply_text(live_msg, parse_mode='Markdown')
@@ -630,6 +664,7 @@ Support: {OWNER_USERNAME}
             os.remove(filename)
             await progress_msg.delete()
             db.update_user_stats(user_id, approved)
+            db.add_check_history(user_id, f"{len(cards)} cards (file)", f"{approved} approved", gw_name)
             
         except Exception as e:
             logger.error(f"File error: {e}")
@@ -648,13 +683,13 @@ Support: {OWNER_USERNAME}
             approved = db.get_approved_users()
             pending = db.get_pending_users()
             blocked = db.get_blocked_users()
-            msg = f"📊 Users\n✅ Approved: {len(approved)}\n⏳ Pending: {len(pending)}\n🚫 Blocked: {len(blocked)}"
-            await update.message.reply_text(msg)
+            msg = f"📊 **Users**\n\n✅ Approved: {len(approved)}\n⏳ Pending: {len(pending)}\n🚫 Blocked: {len(blocked)}"
+            await update.message.reply_text(msg, parse_mode='Markdown')
         
         elif cmd == "/approve" and len(parts) > 1:
             target = int(parts[1])
             if db.approve_user(target, user_id):
-                await update.message.reply_text(f"✅ User {target} Approved!")
+                await update.message.reply_text(f"✅ User `{target}` Approved!")
                 try:
                     await context.bot.send_message(target, "🎉 Approved! Send /start")
                 except:
@@ -663,7 +698,12 @@ Support: {OWNER_USERNAME}
         elif cmd == "/block" and len(parts) > 1:
             target = int(parts[1])
             db.block_user(target)
-            await update.message.reply_text(f"🚫 User {target} Blocked!")
+            await update.message.reply_text(f"🚫 User `{target}` Blocked!")
+        
+        elif cmd == "/unblock" and len(parts) > 1:
+            target = int(parts[1])
+            db.unblock_user(target)
+            await update.message.reply_text(f"✅ User `{target}` Unblocked!")
         
         elif cmd == "/broadcast":
             self.user_settings[user_id]["awaiting_broadcast"] = True
@@ -681,7 +721,9 @@ Support: {OWNER_USERNAME}
         app.add_handler(CommandHandler("users", self.admin_commands))
         app.add_handler(CommandHandler("approve", self.admin_commands))
         app.add_handler(CommandHandler("block", self.admin_commands))
+        app.add_handler(CommandHandler("unblock", self.admin_commands))
         app.add_handler(CommandHandler("broadcast", self.admin_commands))
+        app.add_handler(CommandHandler("cancel", lambda u, c: u.message.reply_text("✅ Cancelled!")))
         app.add_handler(CallbackQueryHandler(self.button_handler))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_card_input))
         app.add_handler(MessageHandler(filters.Document.ALL, self.handle_file))
@@ -695,8 +737,9 @@ Support: {OWNER_USERNAME}
 ══════════════════════════════════════════
   🚀 Shopify Card Checker Pro
   👑 Admin Panel Active
-  🌐 5 Gateways
-  💳 Full Card + CVV Visible
+  💳 Stripe | 🛒 Shopify | 🅱️ Braintree
+  🔍 BIN Lookup (Info Only)
+  📢 Broadcast System
 ══════════════════════════════════════════
         """)
         
