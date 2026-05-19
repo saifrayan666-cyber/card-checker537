@@ -13,7 +13,7 @@ from config import *
 logger = logging.getLogger(__name__)
 
 class ShopifyChecker:
-    """Multi-Gateway Card Checker"""
+    """Multi-Gateway Card Checker - Full Details"""
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
@@ -62,7 +62,6 @@ class ShopifyChecker:
         if len(card_number) < 13 or len(card_number) > 19:
             return None
         
-        # Card type
         card_type = "Unknown"
         if card_number.startswith('4'):
             card_type = "Visa"
@@ -99,7 +98,8 @@ class ShopifyChecker:
             "bin": card_number[:6],
             "last4": card_number[-4:],
             "masked": f"{card_number[:6]}******{card_number[-4:]}",
-            "expiry": f"{month}/{year[-2:]}"
+            "expiry": f"{month}/{year[-2:]}",
+            "raw": card_string
         }
     
     async def get_bin_info(self, bin_number: str) -> Dict:
@@ -129,6 +129,63 @@ class ShopifyChecker:
             "prepaid": False
         }
     
+    def _build_approved_result(self, card_info: Dict, message: str, gateway: str, elapsed: float) -> Dict:
+        """Build result with FULL card details"""
+        self.stats["total"] += 1
+        self.stats["approved"] += 1
+        self.stats["live"] += 1
+        return {
+            "card": card_info["masked"],
+            "full_number": card_info["number"],
+            "full_month": card_info["month"],
+            "full_year": card_info["year"],
+            "full_cvv": card_info["cvv"],
+            "number": card_info["number"],
+            "month": card_info["month"],
+            "year": card_info["year"],
+            "cvv": card_info["cvv"],
+            "expiry": card_info["expiry"],
+            "bin": card_info["bin"],
+            "last4": card_info["last4"],
+            "card_type": card_info["type"],
+            "raw": card_info.get("raw", ""),
+            "status": "APPROVED",
+            "message": message,
+            "gateway": gateway,
+            "response_time": f"{elapsed:.2f}s",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "bin_info": {},
+            "details": ""
+        }
+    
+    def _build_declined_result(self, card_info: Dict, message: str, gateway: str, elapsed: float) -> Dict:
+        """Build declined result"""
+        self.stats["total"] += 1
+        self.stats["declined"] += 1
+        self.stats["die"] += 1
+        return {
+            "card": card_info["masked"],
+            "full_number": card_info["number"],
+            "full_month": card_info["month"],
+            "full_year": card_info["year"],
+            "full_cvv": card_info["cvv"],
+            "number": card_info["number"],
+            "month": card_info["month"],
+            "year": card_info["year"],
+            "cvv": card_info["cvv"],
+            "expiry": card_info["expiry"],
+            "bin": card_info["bin"],
+            "last4": card_info["last4"],
+            "card_type": card_info["type"],
+            "status": "DECLINED",
+            "message": message,
+            "gateway": gateway,
+            "response_time": f"{elapsed:.2f}s",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "bin_info": {},
+            "details": ""
+        }
+    
     async def check_stripe(self, card_info: Dict) -> Optional[Dict]:
         start_time = time.time()
         try:
@@ -150,50 +207,10 @@ class ShopifyChecker:
                 elapsed = time.time() - start_time
                 
                 if status == 200:
-                    self.stats["total"] += 1
-                    self.stats["approved"] += 1
-                    self.stats["live"] += 1
-                    return {
-                        "card": card_info["masked"],
-                        "number": card_info["number"],
-                        "month": card_info["month"],
-                        "year": card_info["year"],
-                        "cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "APPROVED",
-                        "message": "✅ APPROVED - Card valid (Stripe)",
-                        "gateway": "Stripe (Shopify)",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": ""
-                    }
+                    return self._build_approved_result(card_info, "✅ APPROVED - Card valid (Stripe)", "Stripe (Shopify)", elapsed)
                 
                 elif status == 402 or status == 400:
-                    self.stats["total"] += 1
-                    self.stats["declined"] += 1
-                    self.stats["die"] += 1
-                    return {
-                        "card": card_info["masked"],
-                        "number": card_info["number"],
-                        "month": card_info["month"],
-                        "year": card_info["year"],
-                        "cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "DECLINED",
-                        "message": "❌ DECLINED - Card rejected (Stripe)",
-                        "gateway": "Stripe (Shopify)",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": ""
-                    }
+                    return self._build_declined_result(card_info, "❌ DECLINED - Card rejected (Stripe)", "Stripe (Shopify)", elapsed)
         except:
             pass
         return None
@@ -231,27 +248,7 @@ class ShopifyChecker:
                 elapsed = time.time() - start_time
                 
                 if status == 200 and "token" in text.lower():
-                    self.stats["total"] += 1
-                    self.stats["approved"] += 1
-                    self.stats["live"] += 1
-                    return {
-                        "card": card_info["masked"],
-                        "number": card_info["number"],
-                        "month": card_info["month"],
-                        "year": card_info["year"],
-                        "cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "APPROVED",
-                        "message": "✅ APPROVED - Card valid (Braintree)",
-                        "gateway": "Braintree (PayPal)",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": ""
-                    }
+                    return self._build_approved_result(card_info, "✅ APPROVED - Card valid (Braintree)", "Braintree (PayPal)", elapsed)
         except:
             pass
         return None
@@ -262,49 +259,13 @@ class ShopifyChecker:
         elapsed = time.time() - start_time
         
         if bin_info.get("scheme") != "Unknown":
-            self.stats["total"] += 1
-            self.stats["approved"] += 1
-            self.stats["live"] += 1
-            return {
-                "card": card_info["masked"],
-                "number": card_info["number"],
-                "month": card_info["month"],
-                "year": card_info["year"],
-                "cvv": card_info["cvv"],
-                "expiry": card_info["expiry"],
-                "bin": card_info["bin"],
-                "last4": card_info["last4"],
-                "card_type": card_info["type"],
-                "status": "APPROVED",
-                "message": f"✅ VALID BIN - {bin_info.get('brand', 'Unknown')}",
-                "gateway": "BIN Lookup",
-                "response_time": f"{elapsed:.2f}s",
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "bin_info": bin_info,
-                "details": ""
-            }
+            result = self._build_approved_result(card_info, f"✅ VALID BIN - {bin_info.get('brand', 'Unknown')}", "BIN Lookup", elapsed)
+            result["bin_info"] = bin_info
+            return result
         
-        self.stats["total"] += 1
-        self.stats["declined"] += 1
-        self.stats["die"] += 1
-        return {
-            "card": card_info["masked"],
-            "number": card_info["number"],
-            "month": card_info["month"],
-            "year": card_info["year"],
-            "cvv": card_info["cvv"],
-            "expiry": card_info["expiry"],
-            "bin": card_info["bin"],
-            "last4": card_info["last4"],
-            "card_type": card_info["type"],
-            "status": "DECLINED",
-            "message": "❌ INVALID - Unknown BIN",
-            "gateway": "BIN Lookup",
-            "response_time": f"{elapsed:.2f}s",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "bin_info": bin_info,
-            "details": ""
-        }
+        result = self._build_declined_result(card_info, "❌ INVALID - Unknown BIN", "BIN Lookup", elapsed)
+        result["bin_info"] = bin_info
+        return result
     
     async def check_card(self, card_info: Dict, gateway: str = "stripe") -> Dict:
         if gateway == "stripe":
@@ -349,6 +310,10 @@ class ShopifyChecker:
             if not card_info:
                 results.append({
                     "card": card_str[:30],
+                    "full_number": "N/A",
+                    "full_month": "N/A",
+                    "full_year": "N/A",
+                    "full_cvv": "N/A",
                     "number": "N/A",
                     "month": "N/A",
                     "year": "N/A",
@@ -372,12 +337,21 @@ class ShopifyChecker:
             
             result = await self.check_card(card_info, gateway)
             
+            # Add BIN info for approved cards
             if result["status"] == "APPROVED":
                 bin_info = await self.get_bin_info(card_info["bin"])
                 result["bin_info"] = bin_info
+                
+                # FULL DETAILS
+                result["full_number"] = card_info["number"]
+                result["full_cvv"] = card_info["cvv"]
+                result["full_month"] = card_info["month"]
+                result["full_year"] = card_info["year"]
+                
                 result["details"] = (
-                    f"CC: {card_info['masked']} | "
-                    f"MM/YY: {card_info['month']}/{card_info['year']} | "
+                    f"CC: {card_info['number']} | "
+                    f"MM: {card_info['month']} | "
+                    f"YY: {card_info['year']} | "
                     f"CVV: {card_info['cvv']} | "
                     f"BIN: {card_info['bin']} | "
                     f"Bank: {bin_info.get('bank', 'N/A')} | "
