@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Shopify Card Checker Bot - Professional
-Admin Panel + Multi Gateway + Broadcast + User Management
+Full Card Details + CVV Visible
 """
 
 import asyncio
@@ -33,7 +33,7 @@ for admin_id in INITIAL_ADMINS:
     db.add_admin(admin_id)
 
 class ShopifyCardBot:
-    """Professional Bot"""
+    """Professional Bot - Full Card Details"""
     
     def __init__(self):
         self.user_settings: Dict[int, Dict] = {}
@@ -77,7 +77,7 @@ class ShopifyCardBot:
 
 ⚡ **5 Payment Gateways**
 ✅ Live Card Detection
-📊 Full Card Details
+📊 Full Card Details + CVV
 🌍 14 Countries
 
 **Your Settings:**
@@ -235,99 +235,56 @@ Select action:
             
             await query.edit_message_text(panel, reply_markup=keyboard, parse_mode='Markdown')
         
-        # User List
         elif data == "user_list":
             if not db.is_admin(user_id):
                 return
-            
             approved = db.get_approved_users()
             msg = "👥 **Approved Users:**\n\n"
             for u in approved[:30]:
-                msg += f"• {u['first_name']} (@{u.get('username', 'N/A')}) - `{u['id']}`\n"
-                msg += f"  Checks: {u.get('total_checks', 0)} | Approved: {u.get('total_approved', 0)}\n"
-            
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_panel")]
-            ])
+                msg += f"• {u['first_name']} - `{u['id']}`\n"
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
-        # Pending Users
         elif data == "pending_users":
             if not db.is_admin(user_id):
                 return
-            
             pending = db.get_pending_users()
             if not pending:
                 await query.edit_message_text("✅ No pending users!")
                 return
-            
             msg = "⏳ **Pending Users:**\n\n"
             for u in pending:
-                msg += f"• {u['first_name']} (@{u.get('username', 'N/A')}) - `{u['id']}`\n"
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"✅ Approve {u['first_name']}", callback_data=f"approve_{u['id']}"),
-                     InlineKeyboardButton("❌ Reject", callback_data=f"reject_{u['id']}")],
-                    [InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_panel")]
-                ])
-                await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
-                return
-            
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_panel")]
-            ])
+                msg += f"• {u['first_name']} - `{u['id']}`\n"
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
-        # Blocked Users
         elif data == "blocked_users":
             if not db.is_admin(user_id):
                 return
-            
             blocked = db.get_blocked_users()
             if not blocked:
                 await query.edit_message_text("✅ No blocked users!")
                 return
-            
             msg = "🚫 **Blocked Users:**\n\n"
             for u in blocked:
-                msg += f"• {u['first_name']} (@{u.get('username', 'N/A')}) - `{u['id']}`\n"
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"✅ Unblock {u['first_name']}", callback_data=f"unblock_{u['id']}"),
-                     InlineKeyboardButton("🗑 Remove", callback_data=f"remove_{u['id']}")],
-                    [InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_panel")]
-                ])
-                await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
-                return
-            
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_panel")]
-            ])
+                msg += f"• {u['first_name']} - `{u['id']}`\n"
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
-        # Broadcast
         elif data == "broadcast":
             if not db.is_admin(user_id):
                 return
-            
             self.user_settings[user_id]["awaiting_broadcast"] = True
-            await query.edit_message_text(
-                "📢 **Broadcast Mode**\n\n"
-                "Send the message you want to broadcast to all approved users.\n"
-                "Send /cancel to cancel."
-            )
+            await query.edit_message_text("📢 Send broadcast message now...")
         
-        # Check History
         elif data == "check_history":
             if not db.is_admin(user_id):
                 return
-            
             history = db.users.get("check_history", [])[-20:]
             msg = "📋 **Recent Checks:**\n\n"
             for h in reversed(history):
-                msg += f"• {h['card']} - {h['status']} ({h['gateway']})\n"
-            
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_panel")]
-            ])
+                msg += f"• {h['card']} - {h['status']}\n"
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
         # ===== REGULAR BUTTONS =====
@@ -336,47 +293,36 @@ Select action:
 📝 **Enter Card Details:**
 
 Format: `4111111111111111|12|2026|123`
-Separators: | : , ; space
 
 Gateway: {GATEWAYS[settings['gateway']]['name']}
 Country: {COUNTRIES[settings['country']]['name']}
 
 Send cards now ⬇️
             """
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-            ])
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
         elif data == "upload_file":
             msg = """
 📤 **Upload .txt File**
-
 • 1 card per line
 • Max 10,000 cards
 • Format: number|mm|yyyy|cvv
 
 Upload now 📎
             """
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-            ])
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
         elif data == "stats":
             s = checker.stats
             rate = (s['approved'] / s['total'] * 100) if s['total'] > 0 else 0
             stats_msg = f"""
-📊 **Checking Stats**
-
+📊 **Stats**
 Total: {s['total']}
 ✅ Approved: {s['approved']}
 ❌ Declined: {s['declined']}
 📈 Rate: {rate:.1f}%
-💚 Live: {s['live']}
-💀 Die: {s['die']}
-
-Gateway: {GATEWAYS[settings['gateway']]['name']}
             """
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Refresh", callback_data="stats")],
@@ -395,7 +341,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             if row:
                 keyboard.append(row)
             keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_start")])
-            await query.edit_message_text("🌐 **Select Country:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            await query.edit_message_text("🌐 Select Country:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         
         elif data.startswith("country_"):
             settings["country"] = data.replace("country_", "")
@@ -407,7 +353,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             for gw_id, gw_info in GATEWAYS.items():
                 keyboard.append([InlineKeyboardButton(gw_info["name"], callback_data=f"gateway_{gw_id}")])
             keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_start")])
-            await query.edit_message_text("🚀 **Select Gateway:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            await query.edit_message_text("🚀 Select Gateway:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         
         elif data.startswith("gateway_"):
             settings["gateway"] = data.replace("gateway_", "")
@@ -420,7 +366,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
                  InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
                 [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
             ])
-            await query.edit_message_text("🗣 **Select Language:**", reply_markup=keyboard, parse_mode='Markdown')
+            await query.edit_message_text("🗣 Select Language:", reply_markup=keyboard, parse_mode='Markdown')
         
         elif data.startswith("lang_"):
             settings["language"] = data.replace("lang_", "")
@@ -430,21 +376,10 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
         elif data == "help":
             help_msg = f"""
 ℹ️ **Help**
-
-**5 Gateways:**
-• Stripe - Shopify payment
-• Braintree - PayPal
-• Adyen - Global processor
-• Checkout.com - Enterprise
-• BIN Lookup - Card info
-
-**Format:** `4111111111111111|12|2026|123`
-
-**Support:** {OWNER_USERNAME}
+Format: `4111111111111111|12|2026|123`
+Support: {OWNER_USERNAME}
             """
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-            ])
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]])
             await query.edit_message_text(help_msg, reply_markup=keyboard, parse_mode='Markdown')
         
         elif data == "back_to_start":
@@ -467,13 +402,9 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
         ]
         
         if db.is_admin(user_id):
-            keyboard_buttons.append([
-                InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")
-            ])
+            keyboard_buttons.append([InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")])
         
-        keyboard = InlineKeyboardMarkup(keyboard_buttons)
-        
-        await query.edit_message_text("🔄 **Main Menu**", reply_markup=keyboard, parse_mode='Markdown')
+        await query.edit_message_text("🔄 Main Menu", reply_markup=InlineKeyboardMarkup(keyboard_buttons), parse_mode='Markdown')
     
     # ==================== HANDLE CARD INPUT ====================
     async def handle_card_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -498,7 +429,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             return
         
         cards = [line.strip() for line in text.split('\n') if line.strip()]
-        
         if not cards:
             return
         
@@ -507,18 +437,18 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
         country = settings["country"]
         
         processing_msg = await update.message.reply_text(
-            f"⏳ Checking {len(cards)} cards...\n"
-            f"Gateway: {gw_name}\n"
-            f"Country: {COUNTRIES[country]['name']}"
+            f"⏳ Checking {len(cards)} cards...\nGateway: {gw_name}"
         )
         
+        # ===== LIVE RESULT CALLBACK - FULL DETAILS =====
         async def on_live_result(result, current, total):
             live_msg = (
                 f"✅ **LIVE CARD FOUND!** ({current}/{total})\n\n"
-                f"💳 **Card:** `{result['card']}`\n"
+                f"💳 **Card:** `{result.get('full_number', result['card'])}`\n"
+                f"📅 **Expiry:** `{result.get('full_month', 'N/A')}/{result.get('full_year', 'N/A')}`\n"
+                f"🔐 **CVV:** `{result.get('full_cvv', 'N/A')}`\n"
                 f"🔢 **BIN:** `{result['bin']}`\n"
                 f"🔹 **Last 4:** `{result.get('last4', 'N/A')}`\n"
-                f"📅 **Expiry:** `{result.get('expiry', 'N/A')}`\n"
                 f"🏦 **Type:** {result['card_type']}\n"
                 f"🌐 **Gateway:** {result['gateway']}\n"
                 f"⏱️ **Time:** {result['response_time']}\n"
@@ -561,7 +491,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             if approved:
                 summary += "**APPROVED CARDS:**\n"
                 for r in approved:
-                    summary += f"• `{r['card']}` - {r['gateway']}\n"
+                    summary += f"• `{r.get('full_number', r['card'])}` | CVV: `{r.get('full_cvv', 'N/A')}` | {r['gateway']}\n"
             
             await update.message.reply_text(summary, parse_mode='Markdown')
             
@@ -569,7 +499,8 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
                 filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 with open(filename, 'w', encoding='utf-8') as f:
                     for r in results:
-                        f.write(f"{r['card']} | {r['status']} | {r['gateway']} | {r['message']}\n")
+                        f.write(f"{r.get('full_number', r['card'])} | {r['status']} | {r['gateway']} | {r['message']}\n")
+                        f.write(f"  Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')} | CVV: {r.get('full_cvv', 'N/A')}\n")
                         if r.get('bin_info'):
                             bi = r['bin_info']
                             f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')} | Type:{bi.get('type')}\n")
@@ -579,7 +510,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
                     await update.message.reply_document(
                         document=f,
                         filename=filename,
-                        caption=f"Full Results: {len(results)} cards | Live: {len(approved)} | Die: {len(declined)}"
+                        caption=f"Full Results: {len(results)} cards | Live: {len(approved)}"
                     )
                 os.remove(filename)
             
@@ -592,7 +523,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
     # ==================== BROADCAST ====================
     async def handle_broadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
-        
         if not db.is_admin(user_id):
             return
         
@@ -609,7 +539,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             try:
                 await context.bot.send_message(
                     chat_id=user['id'],
-                    text=f"📢 **Broadcast from Admin:**\n\n{message}",
+                    text=f"📢 **Broadcast:**\n\n{message}",
                     parse_mode='Markdown'
                 )
                 sent += 1
@@ -618,7 +548,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
                 pass
         
         db.add_broadcast(message, sent)
-        await update.message.reply_text(f"✅ Broadcast sent to {sent}/{len(approved)} users!")
+        await update.message.reply_text(f"✅ Sent to {sent}/{len(approved)} users!")
     
     # ==================== PROGRESS ====================
     async def progress_update(self, msg, current: int, total: int, card: str):
@@ -642,7 +572,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             return
         
         document = update.message.document
-        
         if not document.file_name.endswith('.txt'):
             await update.message.reply_text("❌ Only .txt files!")
             return
@@ -663,8 +592,9 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             async def on_live(result, current, total):
                 live_msg = (
                     f"✅ **LIVE!** ({current}/{total})\n"
-                    f"💳 `{result['card']}`\n"
-                    f"🔢 BIN: `{result['bin']}`\n"
+                    f"💳 `{result.get('full_number', result['card'])}`\n"
+                    f"📅 `{result.get('full_month', 'N/A')}/{result.get('full_year', 'N/A')}`\n"
+                    f"🔐 CVV: `{result.get('full_cvv', 'N/A')}`\n"
                     f"🌐 {result['gateway']}\n"
                 )
                 if result.get('bin_info'):
@@ -682,10 +612,11 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             with open(filename, 'w', encoding='utf-8') as f:
                 for r in results:
-                    f.write(f"{r['card']} | {r['status']} | {r['gateway']} | {r['message']}\n")
+                    f.write(f"{r.get('full_number', r['card'])} | {r['status']} | {r['gateway']} | {r['message']}\n")
+                    f.write(f"  Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')} | CVV: {r.get('full_cvv', 'N/A')}\n")
                     if r.get('bin_info'):
                         bi = r['bin_info']
-                        f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')} | Brand:{bi.get('brand')} | Type:{bi.get('type')}\n")
+                        f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')}\n")
                     f.write("\n")
             
             with open(filename, 'rb') as f:
@@ -698,7 +629,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             
             os.remove(filename)
             await progress_msg.delete()
-            
             db.update_user_stats(user_id, approved)
             
         except Exception as e:
@@ -718,7 +648,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             approved = db.get_approved_users()
             pending = db.get_pending_users()
             blocked = db.get_blocked_users()
-            msg = f"📊 Users\n\n✅ Approved: {len(approved)}\n⏳ Pending: {len(pending)}\n🚫 Blocked: {len(blocked)}"
+            msg = f"📊 Users\n✅ Approved: {len(approved)}\n⏳ Pending: {len(pending)}\n🚫 Blocked: {len(blocked)}"
             await update.message.reply_text(msg)
         
         elif cmd == "/approve" and len(parts) > 1:
@@ -737,7 +667,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
         
         elif cmd == "/broadcast":
             self.user_settings[user_id]["awaiting_broadcast"] = True
-            await update.message.reply_text("📢 Send the broadcast message now:")
+            await update.message.reply_text("📢 Send broadcast message now:")
     
     # ==================== RUN ====================
     def run(self):
@@ -766,8 +696,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
   🚀 Shopify Card Checker Pro
   👑 Admin Panel Active
   🌐 5 Gateways
-  📢 Broadcast System
-  👥 20-25 Concurrent Users
+  💳 Full Card + CVV Visible
 ══════════════════════════════════════════
         """)
         
