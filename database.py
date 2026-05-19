@@ -4,7 +4,7 @@ from typing import Dict, List
 from datetime import datetime
 
 class Database:
-    """Advanced User Database"""
+    """User Management Database"""
     
     def __init__(self):
         self.db_file = "users.json"
@@ -12,8 +12,11 @@ class Database:
     
     def load(self) -> Dict:
         if os.path.exists(self.db_file):
-            with open(self.db_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            try:
+                with open(self.db_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                pass
         return {
             "admins": [],
             "approved": [],
@@ -25,8 +28,11 @@ class Database:
         }
     
     def save(self):
-        with open(self.db_file, 'w', encoding='utf-8') as f:
-            json.dump(self.users, f, indent=2, ensure_ascii=False)
+        try:
+            with open(self.db_file, 'w', encoding='utf-8') as f:
+                json.dump(self.users, f, indent=2, ensure_ascii=False)
+        except:
+            pass
     
     def is_admin(self, user_id: int) -> bool:
         return str(user_id) in self.users["admins"]
@@ -104,37 +110,11 @@ class Database:
     
     def remove_user(self, user_id: int):
         uid = str(user_id)
-        if uid in self.users["approved"]:
-            self.users["approved"].remove(uid)
-        if uid in self.users["pending"]:
-            self.users["pending"].remove(uid)
-        if uid in self.users["blocked"]:
-            self.users["blocked"].remove(uid)
+        for key in ["approved", "pending", "blocked"]:
+            if uid in self.users[key]:
+                self.users[key].remove(uid)
         if uid in self.users["users_info"]:
             del self.users["users_info"][uid]
-        self.save()
-    
-    def add_check_history(self, user_id: int, card_info: Dict, result: Dict):
-        self.users["check_history"].append({
-            "user_id": str(user_id),
-            "timestamp": datetime.now().isoformat(),
-            "card": card_info.get("masked", "Unknown"),
-            "status": result.get("status", "Unknown"),
-            "gateway": result.get("gateway", "Unknown")
-        })
-        # Keep last 1000
-        if len(self.users["check_history"]) > 1000:
-            self.users["check_history"] = self.users["check_history"][-1000:]
-        self.save()
-    
-    def add_broadcast(self, message: str, sent_to: int):
-        self.users["broadcast_history"].append({
-            "message": message[:100],
-            "sent_to": sent_to,
-            "timestamp": datetime.now().isoformat()
-        })
-        if len(self.users["broadcast_history"]) > 100:
-            self.users["broadcast_history"] = self.users["broadcast_history"][-100:]
         self.save()
     
     def get_pending_users(self) -> List[Dict]:
@@ -158,23 +138,6 @@ class Database:
                 blocked.append(self.users["users_info"][uid])
         return blocked
     
-    def get_all_users(self) -> List[Dict]:
-        all_users = []
-        for uid in self.users["users_info"]:
-            all_users.append(self.users["users_info"][uid])
-        return all_users
-    
-    def get_user_info(self, user_id: int) -> Dict:
-        return self.users["users_info"].get(str(user_id), {})
-    
-    def update_user_stats(self, user_id: int, approved: bool = False):
-        uid = str(user_id)
-        if uid in self.users["users_info"]:
-            self.users["users_info"][uid]["total_checks"] = self.users["users_info"][uid].get("total_checks", 0) + 1
-            if approved:
-                self.users["users_info"][uid]["total_approved"] = self.users["users_info"][uid].get("total_approved", 0) + 1
-            self.save()
-    
     def get_stats(self) -> Dict:
         return {
             "total_users": len(self.users["users_info"]),
@@ -184,3 +147,33 @@ class Database:
             "total_checks": len(self.users["check_history"]),
             "broadcasts": len(self.users["broadcast_history"])
         }
+    
+    def add_check_history(self, user_id: int, card: str, status: str, gateway: str):
+        self.users["check_history"].append({
+            "user_id": str(user_id),
+            "timestamp": datetime.now().isoformat(),
+            "card": card,
+            "status": status,
+            "gateway": gateway
+        })
+        if len(self.users["check_history"]) > 1000:
+            self.users["check_history"] = self.users["check_history"][-1000:]
+        self.save()
+    
+    def add_broadcast(self, message: str, sent_to: int):
+        self.users["broadcast_history"].append({
+            "message": message[:100],
+            "sent_to": sent_to,
+            "timestamp": datetime.now().isoformat()
+        })
+        if len(self.users["broadcast_history"]) > 100:
+            self.users["broadcast_history"] = self.users["broadcast_history"][-100:]
+        self.save()
+    
+    def update_user_stats(self, user_id: int, approved_count: int = 0):
+        uid = str(user_id)
+        if uid in self.users["users_info"]:
+            self.users["users_info"][uid]["total_checks"] = self.users["users_info"][uid].get("total_checks", 0) + 1
+            if approved_count > 0:
+                self.users["users_info"][uid]["total_approved"] = self.users["users_info"][uid].get("total_approved", 0) + approved_count
+            self.save()
