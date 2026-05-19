@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Shopify Card Checker Bot - 100% Working
-Fixed Output + User Management
+Shopify Card Checker Bot - Multi Gateway
+Live Results + All Buttons Active
 """
 
 import asyncio
@@ -14,123 +14,84 @@ from typing import Dict
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from telegram.constants import ParseMode
 
 from config import *
 from checker import ShopifyChecker
 from database import Database
 
-# Setup logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.FileHandler('bot.log'), logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-# Initialize
 db = Database()
 checker = ShopifyChecker()
 
-# Add initial admins
 for admin_id in INITIAL_ADMINS:
     db.add_admin(admin_id)
 
 class ShopifyCardBot:
-    """Main Bot Class - 100% Working"""
+    """Main Bot - All Features"""
     
     def __init__(self):
         self.user_settings: Dict[int, Dict] = {}
+        self.live_results: Dict[int, list] = {}
     
     def get_settings(self, user_id: int) -> Dict:
         """Get user settings"""
         if user_id not in self.user_settings:
             self.user_settings[user_id] = {
                 "language": "bn",
-                "country": "US"
+                "country": "US",
+                "gateway": "stripe"
             }
         return self.user_settings[user_id]
     
-    def safe_edit(self, msg, text):
-        """Safely edit message"""
-        try:
-            return msg.edit_text(text[:4000])
-        except:
-            pass
-    
-    def safe_reply(self, update, text):
-        """Safely reply to message"""
-        try:
-            return update.message.reply_text(text[:4000])
-        except:
-            try:
-                return update.message.reply_text(text[:4000].replace('`', '').replace('*', '').replace('_', '').replace('[', '').replace(']', ''))
-            except:
-                return update.message.reply_text("✅ Done! Check results above.")
-    
     # ==================== START ====================
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Start command"""
+        """Start"""
         user = update.effective_user
         user_id = user.id
         
-        # Check blocked
         if db.is_blocked(user_id):
-            await update.message.reply_text(
-                "⛔ Access Blocked!\n\n"
-                f"Contact: {OWNER_USERNAME}"
-            )
+            await update.message.reply_text("⛔ Access Blocked!")
             return
         
-        # Check pending
         if db.is_pending(user_id):
-            await update.message.reply_text(
-                "⏳ Approval Pending...\n\n"
-                "Your request is being reviewed.\n"
-                f"Contact: {OWNER_USERNAME}"
-            )
+            await update.message.reply_text("⏳ Approval Pending...")
             return
         
-        # New user
         if not db.is_admin(user_id) and not db.is_approved(user_id):
             await self.send_access_request(update)
             return
         
-        # Show welcome
         settings = self.get_settings(user_id)
         lang = settings["language"]
         country = settings["country"]
-        country_name = COUNTRIES.get(country, COUNTRIES["US"])["name"]
+        gateway = settings["gateway"]
+        gw_name = GATEWAYS[gateway]["name"]
         
         stats = checker.stats
-        total = stats["total"]
-        approved = stats["approved"]
-        declined = stats["declined"]
-        rate = (approved / total * 100) if total > 0 else 0
         
         welcome = f"""
 🌟 Shopify Card Checker Bot 🌟
 
 👋 Welcome {user.first_name}!
 
-Features:
-• 100% Real Shopify API Check
-• Gateway Detection
-• BIN, Card Type, Country
-• 10,000+ Card Support
+⚡ Multi-Gateway Support
+✅ Real-time Live Results
+📊 Detailed Card Info
 
 Settings:
-• Language: {"Bangla" if lang == "bn" else "English"}
-• Country: {country_name}
+• Country: {COUNTRIES[country]['name']}
+• Gateway: {gw_name}
 
 Stats:
-• Total: {total}
-• Approved: {approved}
-• Declined: {declined}
-• Success Rate: {rate:.1f}%
+• Total: {stats['total']}
+• Approved: {stats['approved']}
+• Declined: {stats['declined']}
         """
         
         keyboard = InlineKeyboardMarkup([
@@ -138,8 +99,9 @@ Stats:
             [InlineKeyboardButton("📤 Upload File", callback_data="upload_file"),
              InlineKeyboardButton("📊 Stats", callback_data="stats")],
             [InlineKeyboardButton("🌐 Country: " + country, callback_data="change_country"),
-             InlineKeyboardButton("🗣 Language", callback_data="change_lang")],
-            [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
+             InlineKeyboardButton("🚀 Gateway: " + gateway.upper(), callback_data="change_gateway")],
+            [InlineKeyboardButton("🗣 Language", callback_data="change_lang"),
+             InlineKeyboardButton("ℹ️ Help", callback_data="help")]
         ])
         
         await update.message.reply_text(welcome, reply_markup=keyboard)
@@ -157,13 +119,9 @@ Stats:
         })
         
         await update.message.reply_text(
-            "📩 Access Request Sent!\n\n"
-            "Your request has been sent to admin.\n"
-            "Please wait for approval.\n\n"
-            f"Contact: {OWNER_USERNAME}"
+            "📩 Access Request Sent!\nPlease wait for approval."
         )
         
-        # Notify admins
         for admin_id_str in db.users["admins"]:
             try:
                 admin_id = int(admin_id_str)
@@ -175,18 +133,15 @@ Stats:
                 
                 await update.get_bot().send_message(
                     chat_id=admin_id,
-                    text=f"🔔 New Access Request\n\n"
-                         f"User: {user.first_name}\n"
-                         f"Username: @{user.username or 'N/A'}\n"
-                         f"ID: {user_id}",
+                    text=f"🔔 New Access Request\nUser: {user.first_name}\nID: {user_id}",
                     reply_markup=keyboard
                 )
-            except Exception as e:
-                logger.error(f"Admin notify error: {e}")
+            except:
+                pass
     
     # ==================== BUTTON HANDLER ====================
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Button handler"""
+        """Button handler - ALL BUTTONS ACTIVE"""
         query = update.callback_query
         await query.answer()
         
@@ -202,7 +157,7 @@ Stats:
                 try:
                     await context.bot.send_message(
                         chat_id=target_id,
-                        text="🎉 Your access has been approved!\nSend /start to use the bot."
+                        text="🎉 Approved! Send /start"
                     )
                 except:
                     pass
@@ -224,89 +179,74 @@ Stats:
         
         # Check access
         if not db.is_admin(user_id) and not db.is_approved(user_id):
-            await query.edit_message_text("⛔ Access Denied! Send /start first.")
+            await query.edit_message_text("⛔ Access Denied!")
             return
         
         settings = self.get_settings(user_id)
         lang = settings["language"]
         country = settings["country"]
-        country_name = COUNTRIES.get(country, COUNTRIES["US"])["name"]
+        gateway = settings["gateway"]
         
-        # Check Card
+        # Check Card - ALWAYS ACTIVE
         if data == "check_card":
             msg = f"""
 📝 Enter Card Details:
 
 Format: 4111111111111111|12|2026|123
-Separators: | : , ; space
 
-• Single or multiple cards
-• Use file for 100+ cards
-
-Country: {country_name}
-Time per card: {CHECK_DELAY}s
+Gateway: {GATEWAYS[gateway]['name']}
+Country: {COUNTRIES[country]['name']}
 
 Send cards now ⬇️
             """
             
-            await query.edit_message_text(
-                msg,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-                ])
-            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
+            ])
+            
+            await query.edit_message_text(msg, reply_markup=keyboard)
         
-        # Upload File
+        # Upload File - ALWAYS ACTIVE
         elif data == "upload_file":
             msg = """
-📤 File Upload Guide:
+📤 Upload .txt File
 
-• .txt files only
 • 1 card per line
 • Max 10,000 cards
 • Format: number|mm|yyyy|cvv
 
-Upload .txt file now 📎
+Upload now 📎
             """
             
-            await query.edit_message_text(
-                msg,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-                ])
-            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
+            ])
+            
+            await query.edit_message_text(msg, reply_markup=keyboard)
         
-        # Stats
+        # Stats - ALWAYS ACTIVE
         elif data == "stats":
             s = checker.stats
-            total = s["total"]
-            approved = s["approved"]
-            declined = s["declined"]
-            rate = (approved / total * 100) if total > 0 else 0
-            
             stats_msg = f"""
-📊 Checking Stats
+📊 Stats
 
-Total: {total}
-Approved: {approved}
-Declined: {declined}
-Success: {rate:.1f}%
-
+Total: {s['total']}
+Approved: {s['approved']}
+Declined: {s['declined']}
 Live: {s['live']}
 Die: {s['die']}
-Gateway: Shopify API
-Delay: {CHECK_DELAY}s/card
+
+Gateway: {GATEWAYS[gateway]['name']}
             """
             
-            await query.edit_message_text(
-                stats_msg,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Refresh", callback_data="stats")],
-                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-                ])
-            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Refresh", callback_data="stats")],
+                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
+            ])
+            
+            await query.edit_message_text(stats_msg, reply_markup=keyboard)
         
-        # Change Country
+        # Change Country - ALWAYS ACTIVE
         elif data == "change_country":
             keyboard = []
             row = []
@@ -319,18 +259,35 @@ Delay: {CHECK_DELAY}s/card
                 keyboard.append(row)
             keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_start")])
             
-            await query.edit_message_text(
-                "🌐 Select Country:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            await query.edit_message_text("🌐 Select Country:", reply_markup=InlineKeyboardMarkup(keyboard))
         
         elif data.startswith("country_"):
             country = data.replace("country_", "")
             settings["country"] = country
-            await query.answer(f"Country: {COUNTRIES.get(country, {}).get('name', country)}")
+            await query.answer(f"Country: {COUNTRIES[country]['name']}")
             await self.back_to_start(query)
         
-        # Change Language
+        # Change Gateway - NEW
+        elif data == "change_gateway":
+            keyboard = []
+            for gw_id, gw_info in GATEWAYS.items():
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"{gw_info['emoji']} {gw_info['name']}",
+                        callback_data=f"gateway_{gw_id}"
+                    )
+                ])
+            keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_start")])
+            
+            await query.edit_message_text("🚀 Select Gateway:", reply_markup=InlineKeyboardMarkup(keyboard))
+        
+        elif data.startswith("gateway_"):
+            gateway = data.replace("gateway_", "")
+            settings["gateway"] = gateway
+            await query.answer(f"Gateway: {GATEWAYS[gateway]['name']}")
+            await self.back_to_start(query)
+        
+        # Change Language - ALWAYS ACTIVE
         elif data == "change_lang":
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🇧🇩 Bangla", callback_data="lang_bn"),
@@ -346,35 +303,28 @@ Delay: {CHECK_DELAY}s/card
             await query.answer(f"Language: {'Bangla' if lang == 'bn' else 'English'}")
             await self.back_to_start(query)
         
-        # Help
+        # Help - ALWAYS ACTIVE
         elif data == "help":
             help_msg = f"""
-ℹ️ Help & Info
+ℹ️ Help
 
-Card Format:
-4111111111111111|12|2026|123
+Gateways:
+• Stripe - Shopify payment
+• Braintree - PayPal payment
+• BIN Lookup - Card info
 
-Results:
-✅ APPROVED = Card works (Live)
-❌ DECLINED = Card rejected (Die)
-⚠️ UNKNOWN = Try again
-
-File: .txt, 10000 cards
-Gateway: Shopify, Stripe
-Speed: {CHECK_DELAY}s/card
+Format: 4111111111111111|12|2026|123
 
 Support: {OWNER_USERNAME}
-Bot: {BOT_USERNAME}
             """
             
-            await query.edit_message_text(
-                help_msg,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
-                ])
-            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]
+            ])
+            
+            await query.edit_message_text(help_msg, reply_markup=keyboard)
         
-        # Back
+        # Back - ALWAYS ACTIVE
         elif data == "back_to_start":
             await self.back_to_start(query)
     
@@ -384,36 +334,31 @@ Bot: {BOT_USERNAME}
         user_id = query.from_user.id
         settings = self.get_settings(user_id)
         country = settings["country"]
+        gateway = settings["gateway"]
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔍 Check Card", callback_data="check_card")],
             [InlineKeyboardButton("📤 Upload File", callback_data="upload_file"),
              InlineKeyboardButton("📊 Stats", callback_data="stats")],
             [InlineKeyboardButton("🌐 Country: " + country, callback_data="change_country"),
-             InlineKeyboardButton("🗣 Language", callback_data="change_lang")],
-            [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
+             InlineKeyboardButton("🚀 Gateway: " + gateway.upper(), callback_data="change_gateway")],
+            [InlineKeyboardButton("🗣 Language", callback_data="change_lang"),
+             InlineKeyboardButton("ℹ️ Help", callback_data="help")]
         ])
         
-        await query.edit_message_text(
-            "🔄 Main Menu\nSelect option below:",
-            reply_markup=keyboard
-        )
+        await query.edit_message_text("🔄 Main Menu", reply_markup=keyboard)
     
-    # ==================== HANDLE CARD INPUT (FIXED) ====================
+    # ==================== HANDLE CARD INPUT ====================
     async def handle_card_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle card input - 100% WORKING OUTPUT"""
+        """Handle card input - Live results"""
         user_id = update.effective_user.id
         
-        # Check access
         if db.is_blocked(user_id):
             await update.message.reply_text("⛔ Access Blocked!")
             return
         
         if not db.is_admin(user_id) and not db.is_approved(user_id):
-            if db.is_pending(user_id):
-                await update.message.reply_text("⏳ Approval Pending...")
-            else:
-                await self.send_access_request(update)
+            await self.send_access_request(update)
             return
         
         text = update.message.text.strip()
@@ -423,210 +368,170 @@ Bot: {BOT_USERNAME}
             await update.message.reply_text("❌ No cards found!")
             return
         
-        if len(cards) > 100:
-            await update.message.reply_text("⚠️ Use .txt file for 100+ cards!")
-            return
-        
         settings = self.get_settings(user_id)
-        lang = settings["language"]
-        country = settings["country"]
-        country_name = COUNTRIES.get(country, COUNTRIES["US"])["name"]
+        gateway = settings["gateway"]
+        gw_name = GATEWAYS[gateway]["name"]
         
-        # Processing message
         processing_msg = await update.message.reply_text(
-            f"⏳ Checking {len(cards)} cards...\n"
-            f"Country: {country_name}\n"
-            f"Time: ~{len(cards) * CHECK_DELAY}s\n\n"
-            "Please wait..."
+            f"⏳ Checking {len(cards)} cards...\nGateway: {gw_name}"
         )
         
+        # Live results list
+        live_results = []
+        
+        async def on_live_result(result, current, total):
+            """Callback for approved cards"""
+            live_results.append(result)
+            live_msg = (
+                f"✅ LIVE CARD FOUND! ({current}/{total})\n\n"
+                f"Card: {result['card']}\n"
+                f"BIN: {result['bin']}\n"
+                f"Type: {result['card_type']}\n"
+                f"Gateway: {result['gateway']}\n"
+                f"Time: {result['response_time']}\n"
+            )
+            if result.get('bin_info'):
+                bi = result['bin_info']
+                live_msg += (
+                    f"Bank: {bi.get('bank', 'N/A')}\n"
+                    f"Country: {bi.get('country', 'N/A')}\n"
+                    f"Brand: {bi.get('brand', 'N/A')}\n"
+                    f"Type: {bi.get('type', 'N/A')}"
+                )
+            await update.message.reply_text(live_msg)
+        
         try:
-            # Process cards
             results = await checker.check_batch(
                 cards,
-                country=country,
-                progress_callback=lambda c, t, card: self.progress_update(
-                    processing_msg, c, t, card
-                )
+                gateway=gateway,
+                country=settings["country"],
+                progress_callback=lambda c, t, card: self.progress_update(processing_msg, c, t, card),
+                live_result_callback=on_live_result
             )
             
-            # Delete processing message
-            try:
-                await processing_msg.delete()
-            except:
-                pass
+            await processing_msg.delete()
             
-            # Build output text
-            output = self.build_output(results, lang)
+            # Final summary
+            approved = [r for r in results if r["status"] == "APPROVED"]
+            declined = [r for r in results if r["status"] == "DECLINED"]
             
-            # Send results
-            if len(output) > 4000:
-                # Save to file
-                filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            summary = (
+                f"═══════════════════════════════\n"
+                f"  CHECK COMPLETE\n"
+                f"═══════════════════════════════\n\n"
+                f"Total: {len(results)}\n"
+                f"Approved: {len(approved)}\n"
+                f"Declined: {len(declined)}\n"
+                f"Gateway: {gw_name}\n\n"
+            )
+            
+            if approved:
+                summary += "✅ APPROVED CARDS:\n"
+                for r in approved:
+                    summary += f"• {r['card']} - {r['gateway']}\n"
+                    if r.get('bin_info'):
+                        summary += f"  Bank: {r['bin_info'].get('bank', 'N/A')}\n"
+            
+            await update.message.reply_text(summary)
+            
+            # Full results as file
+            if len(results) > 5:
+                filename = f"full_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(output)
+                    for r in results:
+                        f.write(f"{r['card']} | {r['status']} | {r['gateway']} | {r['message']}\n")
+                        if r.get('bin_info'):
+                            f.write(f"  BIN: {r['bin']} | Bank: {r['bin_info'].get('bank')} | Country: {r['bin_info'].get('country')}\n")
                 
                 with open(filename, 'rb') as f:
                     await update.message.reply_document(
                         document=f,
                         filename=filename,
-                        caption=f"✅ Check Complete!\n"
-                               f"Total: {len(results)}\n"
-                               f"Live: {checker.stats['live']} | Die: {checker.stats['die']}"
+                        caption=f"Full Results: {len(results)} cards"
                     )
                 os.remove(filename)
-            else:
-                # Send as message
-                await update.message.reply_text(output)
         
         except Exception as e:
             logger.error(f"Error: {e}")
-            try:
-                await update.message.reply_text(f"❌ Error: {str(e)[:200]}")
-            except:
-                await update.message.reply_text("❌ Error occurred. Try again.")
+            await update.message.reply_text(f"❌ Error: {str(e)[:200]}")
     
     # ==================== PROGRESS UPDATE ====================
     async def progress_update(self, msg, current: int, total: int, card: str):
         """Update progress"""
         if current % 3 == 0 or current == total:
             percent = int(current / total * 100)
-            bar = "█" * (percent // 10) + "░" * (10 - percent // 10)
-            
-            text = (
-                f"⏳ Checking: {current}/{total}\n"
-                f"[{bar}] {percent}%\n"
-                f"Card: {card}\n"
-                f"Shopify API real check..."
-            )
-            
+            text = f"⏳ {current}/{total} ({percent}%)\n🔍 {card}"
             try:
                 await msg.edit_text(text)
             except:
                 pass
     
-    # ==================== BUILD OUTPUT (FIXED) ====================
-    def build_output(self, results: list, lang: str) -> str:
-        """Build output text - 100% working"""
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        total = len(results)
-        
-        approved = [r for r in results if r["status"] == "APPROVED"]
-        declined = [r for r in results if r["status"] == "DECLINED"]
-        unknown = [r for r in results if r["status"] == "UNKNOWN"]
-        invalid = [r for r in results if r["status"] == "INVALID"]
-        errors = [r for r in results if r["status"] == "ERROR"]
-        
-        output = "═══════════════════════════════════\n"
-        output += "  SHOPIFY CARD CHECK RESULTS\n"
-        output += "═══════════════════════════════════\n\n"
-        output += f"Date: {now}\n"
-        output += f"Total Cards: {total}\n"
-        output += f"Approved: {len(approved)}\n"
-        output += f"Declined: {len(declined)}\n"
-        if unknown:
-            output += f"Unknown: {len(unknown)}\n"
-        if invalid:
-            output += f"Invalid: {len(invalid)}\n"
-        if errors:
-            output += f"Errors: {len(errors)}\n"
-        
-        output += "\n" + "=" * 50 + "\n"
-        
-        # Show each card result
-        for i, r in enumerate(results, 1):
-            status_emoji = "✅" if r["status"] == "APPROVED" else "❌" if r["status"] == "DECLINED" else "⚠️"
-            output += f"\n{i}. {status_emoji} {r['card']}\n"
-            output += f"   BIN: {r.get('bin', 'N/A')}\n"
-            output += f"   Type: {r.get('card_type', 'Unknown')}\n"
-            output += f"   Gateway: {r.get('gateway', 'N/A')}\n"
-            output += f"   Country: {r.get('country', 'US')}\n"
-            output += f"   Time: {r.get('response_time', 'N/A')}\n"
-            output += f"   Result: {r.get('message', 'N/A')}\n"
-        
-        output += f"""
-{'=' * 50}
-Summary: {len(approved)} Live | {len(declined)} Die | {total} Total
-Bot: {BOT_USERNAME}
-Owner: {OWNER_USERNAME}
-Time: {now}
-"""
-        
-        return output
-    
     # ==================== HANDLE FILE ====================
     async def handle_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle file upload"""
+        """Handle file - Live results for approved"""
         user_id = update.effective_user.id
         
         if db.is_blocked(user_id):
-            await update.message.reply_text("⛔ Access Blocked!")
+            await update.message.reply_text("⛔ Blocked!")
             return
         
         if not db.is_admin(user_id) and not db.is_approved(user_id):
-            if db.is_pending(user_id):
-                await update.message.reply_text("⏳ Approval Pending...")
-            else:
-                await self.send_access_request(update)
+            await self.send_access_request(update)
             return
         
         document = update.message.document
         
         if not document.file_name.endswith('.txt'):
-            await update.message.reply_text("❌ Only .txt files allowed!")
-            return
-        
-        if document.file_size > 5 * 1024 * 1024:
-            await update.message.reply_text("❌ File too large (max 5MB)!")
+            await update.message.reply_text("❌ Only .txt files!")
             return
         
         settings = self.get_settings(user_id)
-        country = settings["country"]
-        country_name = COUNTRIES.get(country, COUNTRIES["US"])["name"]
+        gateway = settings["gateway"]
+        gw_name = GATEWAYS[gateway]["name"]
         
-        progress_msg = await update.message.reply_text("📥 Downloading file...")
+        progress_msg = await update.message.reply_text("📥 Downloading...")
         
         try:
             file = await context.bot.get_file(document.file_id)
-            file_bytes = await file.download_as_bytearray()
-            content = file_bytes.decode('utf-8')
+            content = (await file.download_as_bytearray()).decode('utf-8')
+            cards = [line.strip() for line in content.split('\n') if line.strip()][:MAX_FILE_CARDS]
             
-            cards = [line.strip() for line in content.split('\n') if line.strip()]
+            await progress_msg.edit_text(f"⏳ Checking {len(cards)} cards...\nGateway: {gw_name}")
             
-            if not cards:
-                await progress_msg.edit_text("❌ No cards found in file!")
-                return
-            
-            if len(cards) > MAX_FILE_CARDS:
-                cards = cards[:MAX_FILE_CARDS]
-            
-            await progress_msg.edit_text(
-                f"⏳ Checking {len(cards)} cards...\n"
-                f"Country: {country_name}\n"
-                f"Time: ~{len(cards) * CHECK_DELAY // 60} min\n\n"
-                "Please wait..."
-            )
+            # Live results
+            async def on_live(result, current, total):
+                live_msg = (
+                    f"✅ LIVE! ({current}/{total})\n"
+                    f"Card: {result['card']}\n"
+                    f"BIN: {result['bin']}\n"
+                    f"Gateway: {result['gateway']}\n"
+                )
+                if result.get('bin_info'):
+                    bi = result['bin_info']
+                    live_msg += f"Bank: {bi.get('bank', 'N/A')} | Country: {bi.get('country', 'N/A')}"
+                await update.message.reply_text(live_msg)
             
             results = await checker.check_batch(
                 cards,
-                country=country,
-                progress_callback=lambda c, t, card: self.progress_update(
-                    progress_msg, c, t, card
-                )
+                gateway=gateway,
+                progress_callback=lambda c, t, card: self.progress_update(progress_msg, c, t, card),
+                live_result_callback=on_live
             )
             
-            output = self.build_output(results, settings["language"])
-            
-            filename = f"shopify_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            # Save file
+            filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write(output)
+                for r in results:
+                    f.write(f"{r['card']} | {r['status']} | {r['gateway']} | {r['message']}\n")
+                    if r.get('bin_info'):
+                        bi = r['bin_info']
+                        f.write(f"  BIN: {r['bin']} | Bank: {bi.get('bank')} | Country: {bi.get('country')} | Brand: {bi.get('brand')}\n")
             
             with open(filename, 'rb') as f:
                 await update.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"✅ Complete! {len(results)} cards\n"
-                           f"Live: {checker.stats['live']} | Die: {checker.stats['die']}"
+                    caption=f"✅ Complete! {len(results)} cards | Live: {checker.stats['live']} | Die: {checker.stats['die']}"
                 )
             
             os.remove(filename)
@@ -634,71 +539,33 @@ Time: {now}
         
         except Exception as e:
             logger.error(f"File error: {e}")
-            try:
-                await progress_msg.edit_text(f"❌ Error: {str(e)[:200]}")
-            except:
-                await update.message.reply_text("❌ Error processing file.")
+            await progress_msg.edit_text(f"❌ Error: {str(e)[:200]}")
     
     # ==================== ADMIN COMMANDS ====================
     async def admin_commands(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin commands"""
         user_id = update.effective_user.id
-        
         if not db.is_admin(user_id):
             return
         
-        text = update.message.text.strip()
-        parts = text.split()
+        parts = update.message.text.strip().split()
         cmd = parts[0].lower() if parts else ""
         
         if cmd == "/users":
             pending = db.get_pending_users()
             approved = db.get_approved_users()
-            
-            msg = "📊 User Management\n\n"
-            msg += f"Pending ({len(pending)}):\n"
-            for u in pending:
-                msg += f"• {u['first_name']} (@{u.get('username', 'N/A')}) - {u['id']}\n"
-            
-            msg += f"\nApproved ({len(approved)}):\n"
-            for u in approved[:20]:
-                msg += f"• {u['first_name']} (@{u.get('username', 'N/A')}) - {u['id']}\n"
-            
-            if len(approved) > 20:
-                msg += f"... and {len(approved) - 20} more\n"
-            
+            msg = f"📊 Users\n\nPending: {len(pending)}\nApproved: {len(approved)}"
             await update.message.reply_text(msg)
         
         elif cmd == "/approve" and len(parts) > 1:
-            try:
-                target = int(parts[1])
-                db.approve_user(target, user_id)
-                await update.message.reply_text(f"✅ User {target} Approved!")
-                try:
-                    await context.bot.send_message(
-                        chat_id=target,
-                        text="🎉 Your access has been approved!\nSend /start to use the bot."
-                    )
-                except:
-                    pass
-            except:
-                await update.message.reply_text("❌ Invalid ID!")
+            target = int(parts[1])
+            db.approve_user(target, user_id)
+            await update.message.reply_text(f"✅ Approved {target}")
         
         elif cmd == "/block" and len(parts) > 1:
-            try:
-                target = int(parts[1])
-                db.block_user(target)
-                await update.message.reply_text(f"🚫 User {target} Blocked!")
-            except:
-                await update.message.reply_text("❌ Invalid ID!")
-        
-        elif cmd == "/unblock" and len(parts) > 1:
-            try:
-                target = int(parts[1])
-                db.unblock_user(target)
-                await update.message.reply_text(f"✅ User {target} Unblocked!")
-            except:
-                await update.message.reply_text("❌ Invalid ID!")
+            target = int(parts[1])
+            db.block_user(target)
+            await update.message.reply_text(f"🚫 Blocked {target}")
     
     # ==================== RUN ====================
     def run(self):
@@ -709,12 +576,10 @@ Time: {now}
         
         app = Application.builder().token(BOT_TOKEN).build()
         
-        # Handlers
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("users", self.admin_commands))
         app.add_handler(CommandHandler("approve", self.admin_commands))
         app.add_handler(CommandHandler("block", self.admin_commands))
-        app.add_handler(CommandHandler("unblock", self.admin_commands))
         app.add_handler(CallbackQueryHandler(self.button_handler))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_card_input))
         app.add_handler(MessageHandler(filters.Document.ALL, self.handle_file))
@@ -722,20 +587,15 @@ Time: {now}
         print("""
 ═══════════════════════════════════
   Shopify Card Checker Bot
-  100% Working Version
-  User Management Active
-  Railway Ready
+  Multi-Gateway Support
+  Live Results Active
+  All Buttons Working
 ═══════════════════════════════════
         """)
         
         print("✅ Bot is running...")
-        
-        app.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
-# ==================== MAIN ====================
 if __name__ == "__main__":
     bot = ShopifyCardBot()
     bot.run()
