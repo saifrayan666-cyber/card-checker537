@@ -3,10 +3,10 @@ import os
 # ==================== বট কনফিগ ====================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8989854278:AAFCjZMd7x4W7OfjHh_1mI8x_TgO2pQb1WE")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "@thispersonisbrandcardchecker_bot")
-OWNER_USERNAME = os.getenv("OWNER_USERNAME", "@thispersonisbrand537")
+OWNER_USERNAME = os.getenv("OWNER_USERNAME", "1978055060,5994477331")
 
 # ==================== অ্যাডমিন ====================
-ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "1978055060,5994477331").split(",")]
+ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "123456789").split(",")]
 INITIAL_ADMINS = ADMIN_IDS
 
 # ==================== চেকিং কনফিগ ====================
@@ -17,24 +17,20 @@ MAX_CONCURRENT_USERS = 25
 # ==================== গেটওয়ে ====================
 GATEWAYS = {
     "stripe": {
-        "name": "💳 Stripe (Shopify)",
-        "description": "Shopify's primary payment processor"
+        "name": "💳 Stripe (Real Check)",
+        "description": "Real card validation via Stripe"
+    },
+    "shopify": {
+        "name": "🛒 Shopify (Real Check)",
+        "description": "Real Shopify store creation check"
     },
     "braintree": {
-        "name": "🅱️ Braintree (PayPal)",
-        "description": "PayPal's payment gateway"
-    },
-    "adyen": {
-        "name": "🔷 Adyen",
-        "description": "Global payment processor"
-    },
-    "checkout": {
-        "name": "🔵 Checkout.com",
-        "description": "Enterprise payment gateway"
+        "name": "🅱️ Braintree (Real Check)",
+        "description": "Real Braintree payment validation"
     },
     "bin_check": {
-        "name": "🔍 BIN Lookup",
-        "description": "Card BIN information lookup"
+        "name": "🔍 BIN Lookup (Info Only)",
+        "description": "BIN information only - NO live check"
     }
 }
 
@@ -43,8 +39,6 @@ STRIPE_API = "https://api.stripe.com/v1"
 STRIPE_PUBLIC_KEY = "pk_live_51H3Y2kCZqK8FwQqSY4K8VQqSZCqK8FwQqSY4K8VQqS"
 BRAINTREE_API = "https://payments.braintree-api.com/graphql"
 BRAINTREE_PUBLIC_KEY = "sandbox_8h2v3m8n_6x5y4z3w2q"
-ADYEN_API = "https://checkout-test.adyen.com/v71"
-CHECKOUT_API = "https://api.checkout.com"
 BIN_API = "https://lookup.binlist.net"
 
 # ==================== ইউজার এজেন্ট ====================
