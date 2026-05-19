@@ -14,7 +14,12 @@ class Database:
         if os.path.exists(self.db_file):
             try:
                 with open(self.db_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Ensure all keys exist
+                    for key in ["admins", "approved", "pending", "blocked", "users_info", "check_history", "broadcast_history"]:
+                        if key not in data:
+                            data[key] = [] if key != "users_info" else {}
+                    return data
             except:
                 pass
         return {
@@ -31,8 +36,8 @@ class Database:
         try:
             with open(self.db_file, 'w', encoding='utf-8') as f:
                 json.dump(self.users, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+        except Exception as e:
+            print(f"Database save error: {e}")
     
     def is_admin(self, user_id: int) -> bool:
         return str(user_id) in self.users["admins"]
@@ -52,6 +57,17 @@ class Database:
             self.users["admins"].append(uid)
             if uid not in self.users["approved"]:
                 self.users["approved"].append(uid)
+            self.users["users_info"][uid] = {
+                "id": user_id,
+                "username": "Admin",
+                "first_name": "Admin",
+                "last_name": "",
+                "requested_at": datetime.now().isoformat(),
+                "approved_at": datetime.now().isoformat(),
+                "approved_by": "system",
+                "total_checks": 0,
+                "total_approved": 0
+            }
             self.save()
     
     def add_pending(self, user_id: int, user_info: Dict):
@@ -138,14 +154,17 @@ class Database:
                 blocked.append(self.users["users_info"][uid])
         return blocked
     
+    def get_all_users(self) -> List[Dict]:
+        return list(self.users["users_info"].values())
+    
     def get_stats(self) -> Dict:
         return {
             "total_users": len(self.users["users_info"]),
             "approved_users": len(self.users["approved"]),
             "pending_users": len(self.users["pending"]),
             "blocked_users": len(self.users["blocked"]),
-            "total_checks": len(self.users["check_history"]),
-            "broadcasts": len(self.users["broadcast_history"])
+            "total_checks": len(self.users.get("check_history", [])),
+            "broadcasts": len(self.users.get("broadcast_history", []))
         }
     
     def add_check_history(self, user_id: int, card: str, status: str, gateway: str):
