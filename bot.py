@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Shopify Card Checker Bot - Professional
-All Gateways Working | Full Card Details | Admin Panel | Broadcast
+Real Gateways Only | No BIN Fallback | Admin Panel | Broadcast
 """
 
 import asyncio
@@ -33,7 +33,7 @@ for admin_id in INITIAL_ADMINS:
     db.add_admin(admin_id)
 
 class ShopifyCardBot:
-    """Professional Bot"""
+    """Professional Bot - Real Gateways Only"""
     
     def __init__(self):
         self.user_settings: Dict[int, Dict] = {}
@@ -69,17 +69,17 @@ class ShopifyCardBot:
         gw_name = GATEWAYS[gateway]["name"]
         
         stats = checker.stats
+        rate = (stats['approved'] / stats['total'] * 100) if stats['total'] > 0 else 0
         
         welcome = f"""
 🌟 **Shopify Card Checker Pro** 🌟
 
 👋 Welcome **{user.first_name}**!
 
-⚡ **Gateways:**
-• 💳 Stripe - Real Check
-• 🛒 Shopify - Real Check
-• 🅱️ Braintree - Real Check
-• 🔍 BIN Lookup - Info Only
+⚡ **Real Gateways Only:**
+• 💳 Stripe - Live Check
+• 🛒 Shopify - Live Check
+• 🅱️ Braintree - Live Check
 
 **Your Settings:**
 • Country: {COUNTRIES[settings['country']]['name']}
@@ -89,6 +89,7 @@ class ShopifyCardBot:
 • Total: {stats['total']}
 • Approved: {stats['approved']}
 • Declined: {stats['declined']}
+• Rate: {rate:.1f}%
 
 Select option below 👇
         """
@@ -264,7 +265,6 @@ Select action:
                 ])
                 await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
                 return
-            
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]])
             await query.edit_message_text(msg, reply_markup=keyboard, parse_mode='Markdown')
         
@@ -306,13 +306,15 @@ Select action:
         
         # ===== REGULAR BUTTONS =====
         elif data == "check_card":
+            gw_info = GATEWAYS[settings['gateway']]
             msg = f"""
 📝 **Enter Card Details:**
 
 Format: `4111111111111111|12|2026|123`
 Separators: | : , ; space
 
-Gateway: {GATEWAYS[settings['gateway']]['name']}
+Gateway: {gw_info['name']}
+Mode: {gw_info['description']}
 Country: {COUNTRIES[settings['country']]['name']}
 
 Send cards now ⬇️
@@ -336,13 +338,16 @@ Upload now 📎
             s = checker.stats
             rate = (s['approved'] / s['total'] * 100) if s['total'] > 0 else 0
             stats_msg = f"""
-📊 **Stats**
+📊 **Checking Stats**
+
 Total: {s['total']}
 ✅ Approved: {s['approved']}
 ❌ Declined: {s['declined']}
 📈 Rate: {rate:.1f}%
 💚 Live: {s['live']}
 💀 Die: {s['die']}
+
+🔍 Real Gateway Check Only
             """
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Refresh", callback_data="stats")],
@@ -395,17 +400,21 @@ Total: {s['total']}
         
         elif data == "help":
             help_msg = f"""
-ℹ️ **Help**
+ℹ️ **Help & Info**
 
-**Gateways:**
-• 💳 Stripe - Real card check
-• 🛒 Shopify - Store create check
-• 🅱️ Braintree - Payment validate
-• 🔍 BIN Lookup - Info only
+**Real Gateways:**
+• 💳 **Stripe** - Token creation check
+• 🛒 **Shopify** - Store signup check
+• 🅱️ **Braintree** - Payment validation
 
 **Format:** `4111111111111111|12|2026|123`
 
+**Results:**
+✅ APPROVED = Card is LIVE
+❌ DECLINED = Card is DEAD
+
 **Support:** {OWNER_USERNAME}
+**Bot:** {BOT_USERNAME}
             """
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_to_start")]])
             await query.edit_message_text(help_msg, reply_markup=keyboard, parse_mode='Markdown')
@@ -461,17 +470,18 @@ Total: {s['total']}
             return
         
         gateway = settings["gateway"]
-        gw_name = GATEWAYS[gateway]["name"]
+        gw_info = GATEWAYS[gateway]
         
         processing_msg = await update.message.reply_text(
             f"⏳ Checking {len(cards)} cards...\n"
-            f"Gateway: {gw_name}\n"
-            f"{'⚠️ BIN Lookup = Info only, no live check' if gateway == 'bin_check' else '✅ Real live check'}"
+            f"Gateway: {gw_info['name']}\n"
+            f"Mode: {gw_info['description']}\n"
+            "🔴 Real Live Check - No BIN Fallback"
         )
         
         async def on_live_result(result, current, total):
             live_msg = (
-                f"✅ **LIVE!** ({current}/{total})\n\n"
+                f"✅ **LIVE CARD FOUND!** ({current}/{total})\n\n"
                 f"💳 **Card:** `{result.get('full_number', result['card'])}`\n"
                 f"📅 **Expiry:** `{result.get('full_month', 'N/A')}/{result.get('full_year', 'N/A')}`\n"
                 f"🔐 **CVV:** `{result.get('full_cvv', 'N/A')}`\n"
@@ -480,16 +490,8 @@ Total: {s['total']}
                 f"🏦 **Type:** {result['card_type']}\n"
                 f"🌐 **Gateway:** {result['gateway']}\n"
                 f"⏱️ **Time:** {result['response_time']}\n"
+                f"📝 **Status:** {result['message']}"
             )
-            if result.get('bin_info'):
-                bi = result['bin_info']
-                if bi.get('bank'):
-                    live_msg += (
-                        f"🏛 **Bank:** {bi.get('bank', 'N/A')}\n"
-                        f"🌍 **Country:** {bi.get('country', 'N/A')}\n"
-                        f"🏷 **Brand:** {bi.get('brand', 'N/A')}\n"
-                        f"💼 **Type:** {bi.get('type', 'N/A')}\n"
-                    )
             
             await update.message.reply_text(live_msg, parse_mode='Markdown')
         
@@ -514,12 +516,17 @@ Total: {s['total']}
                 f"📊 Total: {len(results)}\n"
                 f"✅ Approved: {len(approved)}\n"
                 f"❌ Declined: {len(declined)}\n"
-                f"🌐 Gateway: {gw_name}\n\n"
+                f"🌐 Gateway: {gw_info['name']}\n\n"
             )
             
             if approved:
-                summary += "**APPROVED CARDS:**\n"
+                summary += "**APPROVED (LIVE) CARDS:**\n"
                 for r in approved:
+                    summary += f"• `{r.get('full_number', r['card'])}` | CVV: `{r.get('full_cvv', 'N/A')}` | {r['gateway']}\n"
+            
+            if declined:
+                summary += "\n**DECLINED (DIE) CARDS:**\n"
+                for r in declined:
                     summary += f"• `{r.get('full_number', r['card'])}` | CVV: `{r.get('full_cvv', 'N/A')}` | {r['gateway']}\n"
             
             await update.message.reply_text(summary, parse_mode='Markdown')
@@ -527,24 +534,36 @@ Total: {s['total']}
             if len(results) > 3:
                 filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 with open(filename, 'w', encoding='utf-8') as f:
+                    f.write("=" * 50 + "\n")
+                    f.write("SHOPIFY CARD CHECK RESULTS\n")
+                    f.write("=" * 50 + "\n\n")
+                    f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Gateway: {gw_info['name']}\n")
+                    f.write(f"Total: {len(results)}\n")
+                    f.write(f"Approved: {len(approved)}\n")
+                    f.write(f"Declined: {len(declined)}\n")
+                    f.write("\n" + "=" * 50 + "\n\n")
+                    
                     for r in results:
-                        f.write(f"{r.get('full_number', r['card'])} | {r['status']} | {r['gateway']} | {r['message']}\n")
-                        f.write(f"  Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')} | CVV: {r.get('full_cvv', 'N/A')}\n")
-                        if r.get('bin_info'):
-                            bi = r['bin_info']
-                            f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')}\n")
-                        f.write("\n")
+                        f.write(f"Card: {r.get('full_number', r['card'])}\n")
+                        f.write(f"Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')}\n")
+                        f.write(f"CVV: {r.get('full_cvv', 'N/A')}\n")
+                        f.write(f"BIN: {r['bin']} | Last4: {r.get('last4', 'N/A')}\n")
+                        f.write(f"Type: {r['card_type']} | Gateway: {r['gateway']}\n")
+                        f.write(f"Status: {r['status']} | {r['message']}\n")
+                        f.write(f"Time: {r['response_time']}\n")
+                        f.write("-" * 40 + "\n")
                 
                 with open(filename, 'rb') as f:
                     await update.message.reply_document(
                         document=f,
                         filename=filename,
-                        caption=f"Full Results: {len(results)} cards | Live: {len(approved)}"
+                        caption=f"Full Results: {len(results)} cards | Live: {len(approved)} | Die: {len(declined)}"
                     )
                 os.remove(filename)
             
             db.update_user_stats(user_id, len(approved))
-            db.add_check_history(user_id, f"{len(cards)} cards", f"{len(approved)} approved", gw_name)
+            db.add_check_history(user_id, f"{len(cards)} cards", f"{len(approved)} approved", gw_info['name'])
             
         except Exception as e:
             logger.error(f"Error: {e}")
@@ -569,7 +588,7 @@ Total: {s['total']}
             try:
                 await context.bot.send_message(
                     chat_id=user['id'],
-                    text=f"📢 **Broadcast:**\n\n{message}",
+                    text=f"📢 **Broadcast from Admin:**\n\n{message}",
                     parse_mode='Markdown'
                 )
                 sent += 1
@@ -584,7 +603,7 @@ Total: {s['total']}
     async def progress_update(self, msg, current: int, total: int, card: str):
         if current % 3 == 0 or current == total:
             percent = int(current / total * 100)
-            text = f"⏳ {current}/{total} ({percent}%)\n🔍 `{card}`"
+            text = f"⏳ {current}/{total} ({percent}%)\n🔍 `{card}`\n🔴 Real Check Running..."
             try:
                 await msg.edit_text(text, parse_mode='Markdown')
             except:
@@ -608,9 +627,9 @@ Total: {s['total']}
         
         settings = self.get_settings(user_id)
         gateway = settings["gateway"]
-        gw_name = GATEWAYS[gateway]["name"]
+        gw_info = GATEWAYS[gateway]
         
-        progress_msg = await update.message.reply_text("📥 Downloading...")
+        progress_msg = await update.message.reply_text("📥 Downloading file...")
         
         try:
             file = await context.bot.get_file(document.file_id)
@@ -619,8 +638,9 @@ Total: {s['total']}
             
             await progress_msg.edit_text(
                 f"⏳ Checking {len(cards)} cards...\n"
-                f"Gateway: {gw_name}\n"
-                f"{'⚠️ BIN Lookup = Info only' if gateway == 'bin_check' else '✅ Real live check'}"
+                f"Gateway: {gw_info['name']}\n"
+                f"🔴 Real Live Check - No BIN Fallback\n"
+                f"⏱️ Est: {len(cards) * CHECK_DELAY // 60} min"
             )
             
             async def on_live(result, current, total):
@@ -630,10 +650,8 @@ Total: {s['total']}
                     f"📅 `{result.get('full_month', 'N/A')}/{result.get('full_year', 'N/A')}`\n"
                     f"🔐 CVV: `{result.get('full_cvv', 'N/A')}`\n"
                     f"🌐 {result['gateway']}\n"
+                    f"📝 {result['message']}"
                 )
-                if result.get('bin_info') and result['bin_info'].get('bank'):
-                    bi = result['bin_info']
-                    live_msg += f"🏛 {bi.get('bank', 'N/A')} | 🌍 {bi.get('country', 'N/A')}"
                 await update.message.reply_text(live_msg, parse_mode='Markdown')
             
             results = await checker.check_batch(
@@ -645,26 +663,39 @@ Total: {s['total']}
             
             filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             with open(filename, 'w', encoding='utf-8') as f:
+                f.write("=" * 50 + "\n")
+                f.write("SHOPIFY CARD CHECK RESULTS\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Gateway: {gw_info['name']}\n")
+                f.write(f"Total: {len(results)}\n")
+                
+                approved = len([r for r in results if r['status'] == 'APPROVED'])
+                declined = len([r for r in results if r['status'] == 'DECLINED'])
+                f.write(f"Approved: {approved}\n")
+                f.write(f"Declined: {declined}\n")
+                f.write("\n" + "=" * 50 + "\n\n")
+                
                 for r in results:
-                    f.write(f"{r.get('full_number', r['card'])} | {r['status']} | {r['gateway']} | {r['message']}\n")
-                    f.write(f"  Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')} | CVV: {r.get('full_cvv', 'N/A')}\n")
-                    if r.get('bin_info'):
-                        bi = r['bin_info']
-                        f.write(f"  BIN:{r['bin']} | Bank:{bi.get('bank')} | Country:{bi.get('country')}\n")
-                    f.write("\n")
+                    f.write(f"Card: {r.get('full_number', r['card'])}\n")
+                    f.write(f"Expiry: {r.get('full_month', 'N/A')}/{r.get('full_year', 'N/A')}\n")
+                    f.write(f"CVV: {r.get('full_cvv', 'N/A')}\n")
+                    f.write(f"BIN: {r['bin']} | Type: {r['card_type']}\n")
+                    f.write(f"Status: {r['status']} | {r['message']}\n")
+                    f.write(f"Gateway: {r['gateway']} | Time: {r['response_time']}\n")
+                    f.write("-" * 40 + "\n")
             
             with open(filename, 'rb') as f:
-                approved = len([r for r in results if r['status'] == 'APPROVED'])
                 await update.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"✅ Complete! {len(results)} cards | Live: {approved}"
+                    caption=f"✅ Complete! {len(results)} cards | Live: {approved} | Die: {declined}"
                 )
             
             os.remove(filename)
             await progress_msg.delete()
             db.update_user_stats(user_id, approved)
-            db.add_check_history(user_id, f"{len(cards)} cards (file)", f"{approved} approved", gw_name)
+            db.add_check_history(user_id, f"{len(cards)} cards (file)", f"{approved} approved", gw_info['name'])
             
         except Exception as e:
             logger.error(f"File error: {e}")
@@ -683,7 +714,12 @@ Total: {s['total']}
             approved = db.get_approved_users()
             pending = db.get_pending_users()
             blocked = db.get_blocked_users()
-            msg = f"📊 **Users**\n\n✅ Approved: {len(approved)}\n⏳ Pending: {len(pending)}\n🚫 Blocked: {len(blocked)}"
+            msg = (
+                f"📊 **Users**\n\n"
+                f"✅ Approved: {len(approved)}\n"
+                f"⏳ Pending: {len(pending)}\n"
+                f"🚫 Blocked: {len(blocked)}"
+            )
             await update.message.reply_text(msg, parse_mode='Markdown')
         
         elif cmd == "/approve" and len(parts) > 1:
@@ -736,9 +772,9 @@ Total: {s['total']}
         print("""
 ══════════════════════════════════════════
   🚀 Shopify Card Checker Pro
-  👑 Admin Panel Active
   💳 Stripe | 🛒 Shopify | 🅱️ Braintree
-  🔍 BIN Lookup (Info Only)
+  🔴 Real Gateways Only
+  👑 Admin Panel Active
   📢 Broadcast System
 ══════════════════════════════════════════
         """)
