@@ -37,7 +37,6 @@ class ShopifyCardBot:
     
     def __init__(self):
         self.user_settings: Dict[int, Dict] = {}
-        self.active_checks: Dict[int, bool] = {}
     
     def get_settings(self, user_id: int) -> Dict:
         if user_id not in self.user_settings:
@@ -47,9 +46,6 @@ class ShopifyCardBot:
                 "gateway": "stripe"
             }
         return self.user_settings[user_id]
-    
-    def is_checking(self, user_id: int) -> bool:
-        return self.active_checks.get(user_id, False)
     
     # ==================== START ====================
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -96,7 +92,7 @@ class ShopifyCardBot:
 Select option below 👇
         """
         
-        keyboard = InlineKeyboardMarkup([
+        keyboard_buttons = [
             [InlineKeyboardButton("🔍 Check Card", callback_data="check_card")],
             [InlineKeyboardButton("📤 Upload File", callback_data="upload_file"),
              InlineKeyboardButton("📊 Stats", callback_data="stats")],
@@ -104,13 +100,14 @@ Select option below 👇
             [InlineKeyboardButton("🚀 Gateway: " + gateway.upper(), callback_data="change_gateway")],
             [InlineKeyboardButton("🗣 Language", callback_data="change_lang"),
              InlineKeyboardButton("ℹ️ Help", callback_data="help")]
-        ])
+        ]
         
-        # Admin button
         if db.is_admin(user_id):
-            keyboard.inline_keyboard.append([
+            keyboard_buttons.append([
                 InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")
             ])
+        
+        keyboard = InlineKeyboardMarkup(keyboard_buttons)
         
         await update.message.reply_text(welcome, reply_markup=keyboard, parse_mode='Markdown')
     
@@ -133,7 +130,6 @@ Select option below 👇
             parse_mode='Markdown'
         )
         
-        # Notify admins
         for admin_id_str in db.users["admins"]:
             try:
                 admin_id = int(admin_id_str)
@@ -161,7 +157,7 @@ Select option below 👇
         user_id = query.from_user.id
         data = query.data
         
-        # Admin user actions
+        # Admin actions
         if data.startswith("approve_"):
             if db.is_admin(user_id):
                 target = int(data.replace("approve_", ""))
@@ -460,7 +456,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
         settings = self.get_settings(user_id)
         gateway = settings["gateway"]
         
-        keyboard = InlineKeyboardMarkup([
+        keyboard_buttons = [
             [InlineKeyboardButton("🔍 Check Card", callback_data="check_card")],
             [InlineKeyboardButton("📤 Upload File", callback_data="upload_file"),
              InlineKeyboardButton("📊 Stats", callback_data="stats")],
@@ -468,12 +464,14 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             [InlineKeyboardButton("🚀 Gateway: " + gateway.upper(), callback_data="change_gateway")],
             [InlineKeyboardButton("🗣 Language", callback_data="change_lang"),
              InlineKeyboardButton("ℹ️ Help", callback_data="help")]
-        ])
+        ]
         
         if db.is_admin(user_id):
-            keyboard.inline_keyboard.append([
+            keyboard_buttons.append([
                 InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")
             ])
+        
+        keyboard = InlineKeyboardMarkup(keyboard_buttons)
         
         await query.edit_message_text("🔄 **Main Menu**", reply_markup=keyboard, parse_mode='Markdown')
     
@@ -481,7 +479,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
     async def handle_card_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         
-        # Check broadcast mode
         settings = self.get_settings(user_id)
         if settings.get("awaiting_broadcast") and db.is_admin(user_id):
             await self.handle_broadcast(update, context)
@@ -515,15 +512,13 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             f"Country: {COUNTRIES[country]['name']}"
         )
         
-        self.active_checks[user_id] = True
-        
         async def on_live_result(result, current, total):
-            """Send live approved card with FULL details"""
             live_msg = (
                 f"✅ **LIVE CARD FOUND!** ({current}/{total})\n\n"
                 f"💳 **Card:** `{result['card']}`\n"
                 f"🔢 **BIN:** `{result['bin']}`\n"
                 f"🔹 **Last 4:** `{result.get('last4', 'N/A')}`\n"
+                f"📅 **Expiry:** `{result.get('expiry', 'N/A')}`\n"
                 f"🏦 **Type:** {result['card_type']}\n"
                 f"🌐 **Gateway:** {result['gateway']}\n"
                 f"⏱️ **Time:** {result['response_time']}\n"
@@ -536,8 +531,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
                     f"🏷 **Brand:** {bi.get('brand', 'N/A')}\n"
                     f"💼 **Card Type:** {bi.get('type', 'N/A')}\n"
                 )
-            if result.get('details'):
-                live_msg += f"📝 **Info:** {result['details']}\n"
             
             await update.message.reply_text(live_msg, parse_mode='Markdown')
         
@@ -552,7 +545,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             
             await processing_msg.delete()
             
-            # Summary
             approved = [r for r in results if r["status"] == "APPROVED"]
             declined = [r for r in results if r["status"] == "DECLINED"]
             
@@ -573,7 +565,6 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             
             await update.message.reply_text(summary, parse_mode='Markdown')
             
-            # Full results file
             if len(results) > 3:
                 filename = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 with open(filename, 'w', encoding='utf-8') as f:
@@ -592,14 +583,11 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
                     )
                 os.remove(filename)
             
-            # Update user stats
-            db.update_user_stats(user_id, len(approved) > 0)
+            db.update_user_stats(user_id, len(approved))
             
         except Exception as e:
             logger.error(f"Error: {e}")
             await update.message.reply_text(f"❌ Error: {str(e)[:200]}")
-        
-        self.active_checks[user_id] = False
     
     # ==================== BROADCAST ====================
     async def handle_broadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -632,7 +620,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
         db.add_broadcast(message, sent)
         await update.message.reply_text(f"✅ Broadcast sent to {sent}/{len(approved)} users!")
     
-    # ==================== PROGRESS UPDATE ====================
+    # ==================== PROGRESS ====================
     async def progress_update(self, msg, current: int, total: int, card: str):
         if current % 3 == 0 or current == total:
             percent = int(current / total * 100)
@@ -711,7 +699,7 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
             os.remove(filename)
             await progress_msg.delete()
             
-            db.update_user_stats(user_id, approved > 0)
+            db.update_user_stats(user_id, approved)
             
         except Exception as e:
             logger.error(f"File error: {e}")
@@ -753,43 +741,43 @@ Gateway: {GATEWAYS[settings['gateway']]['name']}
     
     # ==================== RUN ====================
     def run(self):
-    """Run bot - Fixed"""
-    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        print("❌ BOT_TOKEN not configured!")
-        sys.exit(1)
-    
-    # Create app
-    app = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add handlers
-    app.add_handler(CommandHandler("start", self.start_command))
-    app.add_handler(CommandHandler("users", self.admin_commands))
-    app.add_handler(CommandHandler("approve", self.admin_commands))
-    app.add_handler(CommandHandler("block", self.admin_commands))
-    app.add_handler(CommandHandler("broadcast", self.admin_commands))
-    app.add_handler(CallbackQueryHandler(self.button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_card_input))
-    app.add_handler(MessageHandler(filters.Document.ALL, self.handle_file))
-    
-    # Error handler
-    async def error_handler(update, context):
-        logger.error(f"Error: {context.error}")
-    
-    app.add_error_handler(error_handler)
-    
-    print("""
+        if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+            print("❌ BOT_TOKEN not configured!")
+            sys.exit(1)
+        
+        app = Application.builder().token(BOT_TOKEN).build()
+        
+        app.add_handler(CommandHandler("start", self.start_command))
+        app.add_handler(CommandHandler("users", self.admin_commands))
+        app.add_handler(CommandHandler("approve", self.admin_commands))
+        app.add_handler(CommandHandler("block", self.admin_commands))
+        app.add_handler(CommandHandler("broadcast", self.admin_commands))
+        app.add_handler(CallbackQueryHandler(self.button_handler))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_card_input))
+        app.add_handler(MessageHandler(filters.Document.ALL, self.handle_file))
+        
+        async def error_handler(update, context):
+            logger.error(f"Error: {context.error}")
+        
+        app.add_error_handler(error_handler)
+        
+        print("""
 ══════════════════════════════════════════
   🚀 Shopify Card Checker Pro
   👑 Admin Panel Active
   🌐 5 Gateways
+  📢 Broadcast System
+  👥 20-25 Concurrent Users
 ══════════════════════════════════════════
-    """)
-    
-    print("✅ Bot starting...")
-    
-    # Run with proper settings
-    app.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-        stop_signals=None
-    )
+        """)
+        
+        print("✅ Bot is running...")
+        
+        app.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+
+if __name__ == "__main__":
+    bot = ShopifyCardBot()
+    bot.run()
